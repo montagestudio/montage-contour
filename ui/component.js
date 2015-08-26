@@ -99,6 +99,31 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
      */
 
     /**
+     * A CSS class that enables build-in CSS transition & animation.
+     * This class is the starting point for CSS transition.
+     * For CSS animation, it should contain all the start / end implementation.
+     *
+     * @name Component#buildInCssClassOverride
+     * @property {?String}
+     *
+     */
+
+    /**
+     * A CSS class that marks the end of build-in CSS transition.
+     * Use {@link Component.buildInCssClass} for CSS animation.
+     *
+     * @name Component#buildInTransitionCssClassOverride
+     * @property {?String}
+     */
+
+    /**
+     * A CSS class that enables build-out CSS transition & animation.
+     *
+     * @name Component#buildOutCssClassOverride
+     * @property {String}
+     */
+
+    /**
      * Lifecycle hook for when Component's domContent changes.
      *
      * @name Component#contentWillChange
@@ -887,7 +912,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             // incoming component is already a childComponent, may be currently building out,
             // _performBuildIn here if necessary, as _enterDocument won't be triggered
             } else {
-                if (childComponent.buildInCssClass && !childComponent._isBuildingIn) {
+                if (childComponent.getBuildInCssClass() && !childComponent._isBuildingIn) {
                     childComponent._performBuildIn();
                 }
             }
@@ -954,7 +979,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
         value: function () {
             if (!this._firstDraw &&
                 this._inDocument &&
-                this.buildOutCssClass &&
+                this.getBuildOutCssClass() &&
                 !this._isBuildingOut) {
 
                 this._performBuildOut();
@@ -1021,7 +1046,8 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             if (this._componentsPendingBuildOut.length === this._componentsCompletedBuildOut.length) {
                 for (i = 0; i < this._componentsCompletedBuildOut.length; i++) {
                     componentToRemove = this._componentsCompletedBuildOut[i];
-                    componentToRemove.classList.remove(componentToRemove.buildOutCssClass);
+                    componentToRemove.classList.remove(componentToRemove.getBuildOutCssClass());
+                    componentToRemove.buildOutCssClassOverride = undefined;
                 }
                 this._componentsPendingBuildOut.length = 0;
                 this.needsDraw = true;
@@ -2277,6 +2303,27 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
         }
     },
 
+    getBuildInCssClass: {
+        value: function () {
+            return typeof this.buildInCssClassOverride !== "undefined" ?
+                this.buildInCssClassOverride : this.buildInCssClass;
+        }
+    },
+
+    getBuildInTransitionCssClass: {
+        value: function () {
+            return typeof this.buildInTransitionCssClassOverride !== "undefined" ?
+                this.buildInTransitionCssClassOverride : this.buildInTransitionCssClass;
+        }
+    },
+
+    getBuildOutCssClass: {
+        value: function () {
+            return typeof this.buildOutCssClassOverride !== "undefined" ?
+                this.buildOutCssClassOverride : this.buildOutCssClass;
+        }
+    },
+
     /**
      * Perform build-in animation, if defined.
      *
@@ -2287,6 +2334,10 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
      */
     _performBuildIn: {
         value: function () {
+            var buildInCssClass = this.getBuildInCssClass(),
+                buildInTransitionCssClass = this.getBuildInTransitionCssClass(),
+                buildOutCssClass = this.getBuildOutCssClass();
+
             this._isBuildingIn = true;
 
             // Component may be in the process of building out; already has event listeners
@@ -2298,22 +2349,22 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                 // from being cleared out of the DOM by parent
                 this.parentComponent._childComponentCancelBuildOut(this);
 
-                if (this.classList.contains(this.buildOutCssClass)) {
-                    this.classList.remove(this.buildOutCssClass);
+                if (this.classList.contains(buildOutCssClass)) {
+                    this.classList.remove(buildOutCssClass);
                 }
+                this.buildOutCssClassOverride = undefined;
 
             } else {
                 this.element.addEventListener("transitionend", this, false);
                 this.element.addEventListener(ANIMATIONEND_EVENT_NAME, this, false);
             }
 
-            if (!this.classList.contains(this.buildInCssClass)) {
-                this.classList.add(this.buildInCssClass);
+            if (!this.classList.contains(buildInCssClass)) {
+                this.classList.add(buildInCssClass);
             }
 
-            if (this.buildInTransitionCssClass &&
-                !this.classList.contains(this.buildInTransitionCssClass)) {
-                this.classList.add(this.buildInTransitionCssClass);
+            if (buildInTransitionCssClass && !this.classList.contains(buildInTransitionCssClass)) {
+                this.classList.add(buildInTransitionCssClass);
             }
         }
     },
@@ -2327,6 +2378,10 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
      */
     _performBuildOut: {
         value: function () {
+            var buildInCssClass = this.getBuildInCssClass(),
+                buildInTransitionCssClass = this.getBuildInTransitionCssClass(),
+                buildOutCssClass = this.getBuildOutCssClass();
+
             this.parentComponent._childComponentWillBuildOut(this);
             this._isBuildingOut = true;
 
@@ -2334,22 +2389,24 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             if (this._isBuildingIn) {
                 this._isBuildingIn = false;
 
-                if (this.classList.contains(this.buildInCssClass)) {
-                    this.classList.remove(this.buildInCssClass);
+                if (this.classList.contains(buildInCssClass)) {
+                    this.classList.remove(buildInCssClass);
+                }
+                if (buildInTransitionCssClass &&
+                    this.classList.contains(buildInTransitionCssClass)) {
+                    this.classList.remove(buildInTransitionCssClass);
                 }
 
-                if (this.buildInTransitionCssClass &&
-                    this.classList.contains(this.buildInTransitionCssClass)) {
-                    this.classList.remove(this.buildInTransitionCssClass);
-                }
+                this.buildInCssClassOverride = undefined;
+                this.buildInTransitionCssClassOverride = undefined;
 
             } else {
                 this.element.addEventListener("transitionend", this, false);
                 this.element.addEventListener(ANIMATIONEND_EVENT_NAME, this, false);
             }
 
-            if (!this.classList.contains(this.buildOutCssClass)) {
-                this.classList.add(this.buildOutCssClass);
+            if (!this.classList.contains(buildOutCssClass)) {
+                this.classList.add(buildOutCssClass);
             }
         }
     },
@@ -2415,7 +2472,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             childNodesCount = element.childNodes.length;
             for (var i = 0; i < childNodesCount; i++) {
                 if (!element.firstChild.component ||
-                    (element.firstChild.component && !element.firstChild.component.buildOutCssClass)) {
+                    (element.firstChild.component && !element.firstChild.component.getBuildOutCssClass())) {
 
                     element.removeChild(element.firstChild);
                 }
@@ -2937,7 +2994,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                 }
             }
 
-            if (this.buildInCssClass && !this._isBuildingIn) {
+            if (this.getBuildInCssClass() && !this._isBuildingIn) {
                 this._performBuildIn();
             }
         }
@@ -2989,10 +3046,10 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             this._drawClassListIntoComponent();
 
             // Trigger CSS transition
-            if (this.classList.contains(this.buildInCssClass) &&
-                this.classList.contains(this.buildInTransitionCssClass)) {
+            if (this.classList.contains(this.getBuildInCssClass()) &&
+                this.classList.contains(this.getBuildInTransitionCssClass())) {
 
-                this.classList.remove(this.buildInCssClass);
+                this.classList.remove(this.getBuildInCssClass());
             }
 
             // All children that need to build out have done so; detach & remove them
@@ -3008,22 +3065,6 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
         }
     },
 
-    handleTransitionend: {
-        value: function (event) {
-            this.handleBuildinBuildout(event);
-        }
-    },
-    handleAnimationend: {
-        value: function (event) {
-            this.handleBuildinBuildout(event);
-        }
-    },
-    handleWebkitAnimationEnd: {
-        value: function (event) {
-            this.handleBuildinBuildout(event);
-        }
-    },
-
     /**
      * @private
      * @function
@@ -3031,8 +3072,12 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
      * @todo may still leave event listeners in some versions of Firefox;
      *  may be fixed with nativeRemoveEventListener & delegating to this.eventManager
      */
-    handleBuildinBuildout: {
+    handleTransitionend: {
         value: function (event) {
+            var buildInCssClass = this.getBuildInCssClass(),
+                buildInTransitionCssClass = this.getBuildInTransitionCssClass(),
+                buildOutCssClass = this.getBuildOutCssClass();
+
             if (event) {
                 event.stopPropagation();
             }
@@ -3045,19 +3090,20 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             if (this._isBuildingIn) {
                 this._isBuildingIn = false;
 
-                if (this.classList.contains(this.buildInCssClass)) {
-                    this.classList.remove(this.buildInCssClass);
+                if (this.classList.contains(buildInCssClass)) {
+                    this.classList.remove(buildInCssClass);
                 }
-                if (this.classList.contains(this.buildInTransitionCssClass)) {
-                    this.classList.remove(this.buildInTransitionCssClass);
+                if (this.classList.contains(buildInTransitionCssClass)) {
+                    this.classList.remove(buildInTransitionCssClass);
                 }
+
+                this.buildInCssClassOverride = undefined;
+                this.buildInTransitionCssClassOverride = undefined;
             }
 
             if (this._isBuildingOut) {
                 this._isBuildingOut = false;
-
-                // if DOM element need to be removed, tell parent
-                // then parent will do so in its next draw
+                // Parent will take care of removal of class, element, etc.
                 this.parentComponent._childComponentDidBuildOut(this);
             }
         }
@@ -3274,6 +3320,9 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
     }
 });
 
+Component.prototype.handleAnimationend =
+    Component.prototype.handleWebkitAnimationEnd =
+        Component.prototype.handleTransitionend;
 
 /**
  * @class RootComponent
