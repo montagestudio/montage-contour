@@ -1,0 +1,37 @@
+.Main-currentImageIndex {
+    margin: 1em 0 0 0;
+    text-align: center;
+    width: 700px;
+}
+
+.Main-imageGallery {
+    height: 500px;
+    width: 700px;
+}
+
+.montage-ImageGallery {
+    background: black;
+}
+
+.montage-ImageGallery-previous,
+.montage-ImageGallery-next {
+    position: absolute;
+    top: 50%;
+    left: -12px;
+    margin-top: -22px;
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: #aaa;
+    outline: none;
+}
+
+.montage-ImageGallery-next {
+    left: auto;
+    right: -12px;
+}
+
+.montage-ImageGallery-previous.montage--disabled,
+.montage-ImageGallery-next.montage--disabled {
+    opacity: 0.4;
+}
