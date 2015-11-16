@@ -3130,7 +3130,9 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                 this.buildInAnimationOverride = null;
                 this.buildOutAnimationOverride = null;
                 if (this._isElementAttachedToParent) {
-                    this._element.parentNode.removeChild(self._element);
+                    if (this._element.parentNode) {
+                        this._element.parentNode.removeChild(this._element);
+                    }
                     this._isElementAttachedToParent = false;
                 }
             }
@@ -3139,6 +3141,15 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
 
     _willEnterDocument: {
         value: function () {
+            var event;
+
+            event = new CustomEvent("willEnterDocument", {
+                details: {
+                    component: this
+                },
+                bubbles: false
+            });
+            this.dispatchEvent(event);
             this._inDocument = true;
             if (this.parentComponent) {
                 this.parentComponent._childWillEnterDocument();
