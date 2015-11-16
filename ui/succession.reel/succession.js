@@ -17,17 +17,11 @@ var Component = require("ui/component").Component;
 exports.Succession = Component.specialize(/** @lends Succession.prototype */{
 
     contentBuildInAnimation: {
-        value: {
-            fromCssClass: "buildInFrom",
-            cssClass: "buildIn"
-        }
+        value: null
     },
 
     contentBuildOutAnimation: {
-        value: {
-            cssClass: "buildOut",
-            toCssClass: "buildOutTo"
-        }
+        value: null
     },
 
     constructor: {
