@@ -3090,6 +3090,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                 this._currentBuildAnimation.finished.then(function () {
                     self._currentBuildAnimation.cancel();
                     self._currentBuildAnimation = null;
+                    self.dispatchEventNamed("buildInEnd", true, true);
                 });
             }
         }
@@ -3109,6 +3110,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
             if (this._currentBuildAnimation) {
                 this._currentBuildAnimation.play();
                 this._currentBuildAnimation.finished.then(function () {
+                    var parent = self.parentComponent;
                     self._currentBuildAnimation.cancel();
                     self._currentBuildAnimation = null;
                     self.detachFromParentComponent();
@@ -3116,6 +3118,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                     self.buildOutAnimationOverride = null;
                     self._element.parentNode.removeChild(self._element);
                     self._isElementAttachedToParent = false;
+                    parent.dispatchEventNamed("buildOutEnd", true, true);
                 });
             } else {
                 this.detachFromParentComponent();
