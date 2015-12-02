@@ -95,7 +95,7 @@ var CssBasedAnimation = Montage.specialize({
             var result,
                 i;
 
-            if (timeValue === "") {
+            if (typeof timeValue !== "string" || timeValue === "") {
                 return this._emptyArray;
             }
             result = timeValue.replace(/s| /g, "").split(",");
