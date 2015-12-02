@@ -231,7 +231,7 @@ var CssBasedAnimation = Montage.specialize({
     finished: {
         get: function () {
             if (!this._finishedDeferred) {
-                this._finishedDeferred = Promise.defer();
+                this._finishedDeferred = Promise.pending();
             }
             return this._finishedDeferred.promise;
         }
@@ -242,7 +242,7 @@ var CssBasedAnimation = Montage.specialize({
             if (this.component) {
                 if (!this._finishedDeferred || this._cancelled) {
                     this._cancelled = false;
-                    this._finishedDeferred = Promise.defer();
+                    this._finishedDeferred = Promise.pending();
                 }
                 this.component.needsDraw = true;
                 if (this.fromCssClass) {
@@ -3095,7 +3095,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                     self._currentBuildAnimation.cancel();
                     self._currentBuildAnimation = null;
                     self.dispatchEventNamed("buildInEnd", true, true);
-                });
+                }, function () {});
             }
         }
     },
@@ -3123,7 +3123,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                     self._element.parentNode.removeChild(self._element);
                     self._isElementAttachedToParent = false;
                     parent.dispatchEventNamed("buildOutEnd", true, true);
-                });
+                }, function () {});
             } else {
                 this.detachFromParentComponent();
                 this.buildInAnimationOverride = null;
