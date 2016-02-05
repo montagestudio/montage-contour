@@ -3085,6 +3085,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                 }
                 if (this._currentBuildAnimation) {
                     this._currentBuildAnimation.play();
+                    this._isBuildingOut = false;
                     this._currentBuildAnimation.finished.then(function () {
                         self._currentBuildAnimation.cancel();
                         this._isBuildingOut = false;
@@ -3174,6 +3175,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
 
     _childWillEnterDocument: {
         value: function () {
+            this._isBuildingOut = false;
             if (this._componentsPendingBuildOut) {
                 while (this._componentsPendingBuildOut.length) {
                     this._componentsPendingBuildOut.pop()._shouldBuildOut = true;
