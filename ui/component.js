@@ -3074,6 +3074,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
 
             if (this._currentBuildAnimation) {
                 this._currentBuildAnimation.cancel();
+                this._isBuildingOut = false;
             }
             if (this._element && this._element.parentNode && this._element.parentNode.component) {
                 if (this._isElementAttachedToParent) {
@@ -3086,6 +3087,7 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
                     this._currentBuildAnimation.play();
                     this._currentBuildAnimation.finished.then(function () {
                         self._currentBuildAnimation.cancel();
+                        this._isBuildingOut = false;
                         self._currentBuildAnimation = null;
                         self.dispatchEventNamed("buildInEnd", true, true);
                     }, function () {});
@@ -3094,42 +3096,51 @@ var Component = exports.Component = Target.specialize(/** @lends Component.proto
         }
     },
 
+    _isBuildingOut: {
+        value: false
+    },
+
     _buildOut: {
         value: function () {
             var self = this;
 
-            if (this._currentBuildAnimation) {
-                this._currentBuildAnimation.cancel();
-                this._currentBuildAnimation = this.buildOutSwitchAnimation;
-            } else {
-                this._updateActiveBuildAnimations();
-                this._currentBuildAnimation = this.buildOutInitialAnimation;
-            }
-            if (this._element && this._element.parentNode && this._element.parentNode.component) {
+            if (!(this._currentBuildAnimation && this._isBuildingOut)) {
                 if (this._currentBuildAnimation) {
-                    this._currentBuildAnimation.play();
-                    this._currentBuildAnimation.finished.then(function () {
-                        var parent = self.parentComponent;
-                        self._currentBuildAnimation.cancel();
-                        self._currentBuildAnimation = null;
-                        self.detachFromParentComponent();
-                        self.buildInAnimationOverride = null;
-                        self.buildOutAnimationOverride = null;
-                        if (self._element.parentNode.component) {
-                            self._element.parentNode.removeChild(self._element);
-                        }
-                        self._isElementAttachedToParent = false;
-                        parent.dispatchEventNamed("buildOutEnd", true, true);
-                    }, function () {});
+                    this._currentBuildAnimation.cancel();
+                    this._isBuildingOut = false;
+                    this._currentBuildAnimation = this.buildOutSwitchAnimation;
                 } else {
-                    this.detachFromParentComponent();
-                    this.buildInAnimationOverride = null;
-                    this.buildOutAnimationOverride = null;
-                    if (this._isElementAttachedToParent) {
-                        if (this._element.parentNode && this._element.parentNode.component) {
-                            this._element.parentNode.removeChild(this._element);
+                    this._updateActiveBuildAnimations();
+                    this._currentBuildAnimation = this.buildOutInitialAnimation;
+                }
+                if (this._element && this._element.parentNode && this._element.parentNode.component) {
+                    if (this._currentBuildAnimation) {
+                        this._currentBuildAnimation.play();
+                        this._isBuildingOut = true;
+                        this._currentBuildAnimation.finished.then(function () {
+                            var parent = self.parentComponent;
+                            self._currentBuildAnimation.cancel();
+                            this._isBuildingOut = false;
+                            self._currentBuildAnimation = null;
+                            self.detachFromParentComponent();
+                            self.buildInAnimationOverride = null;
+                            self.buildOutAnimationOverride = null;
+                            if (self._element.parentNode.component) {
+                                self._element.parentNode.removeChild(self._element);
+                            }
+                            self._isElementAttachedToParent = false;
+                            parent.dispatchEventNamed("buildOutEnd", true, true);
+                        }, function () {});
+                    } else {
+                        this.detachFromParentComponent();
+                        this.buildInAnimationOverride = null;
+                        this.buildOutAnimationOverride = null;
+                        if (this._isElementAttachedToParent) {
+                            if (this._element.parentNode && this._element.parentNode.component) {
+                                this._element.parentNode.removeChild(this._element);
+                            }
+                            this._isElementAttachedToParent = false;
                         }
-                        this._isElementAttachedToParent = false;
                     }
                 }
             }
