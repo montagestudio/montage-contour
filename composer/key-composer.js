@@ -79,7 +79,6 @@ var KeyComposer = exports.KeyComposer = Composer.specialize( /** @lends KeyCompo
             // Only register the key if somebody is listening for, else let do
             // it later.
             // console.log("--- load", this.identifier);
-            this._isLoaded = true;
             if (this._shouldDispatchEvent && !this._keyRegistered) {
                 KeyManagerProxy.defaultKeyManager.registerKey(this);
                 this._keyRegistered = true;
@@ -89,7 +88,6 @@ var KeyComposer = exports.KeyComposer = Composer.specialize( /** @lends KeyCompo
 
     unload: {
         value: function () {
-            this._isLoaded = false;
             KeyManagerProxy.defaultKeyManager.unregisterKey(this);
             this._keyRegistered = false;
         }
@@ -111,7 +109,7 @@ var KeyComposer = exports.KeyComposer = Composer.specialize( /** @lends KeyCompo
             // console.log("--- addEventListener", this.identifier);
             var component = this.component;
 
-            Composer.addEventListener.call(this, type, listener, useCapture);
+            Composer.prototype.addEventListener.call(this, type, listener, useCapture);
 
             if (type == KEYPRESS_EVENT_TYPE || type == LONGKEYPRESS_EVENT_TYPE || type == KEYRELEASE_EVENT_TYPE) {
                 this._shouldDispatchEvent = true;
@@ -132,7 +130,7 @@ var KeyComposer = exports.KeyComposer = Composer.specialize( /** @lends KeyCompo
                     }
                     // this keyComposer is not attached to a UI Component,
                     // let's load it manually
-                    this.load();
+                    this.component.loadComposer(this);
                 }
             }
         }
@@ -170,7 +168,7 @@ var KeyComposer = exports.KeyComposer = Composer.specialize( /** @lends KeyCompo
                     }
                     // this keyComposer is not attached to a UI Component,
                     // let's load it manually
-                    this.load();
+                    this.component.loadComposer(this);
                 }
             }
         }
@@ -287,15 +285,6 @@ var KeyManagerProxy = Montage.specialize(  {
     },
 
     /**
-     * @private
-     */
-    constructor: {
-        value: function () {
-            // console.log("PROXY CREATED")
-        }
-    },
-
-    /**
      * Register a `KeyComposer` with the default `KeyManager`.
      * @function
      * @param {Object} keyComposer. A key composer object.
@@ -316,8 +305,7 @@ var KeyManagerProxy = Montage.specialize(  {
                             keyManager.registerKey(keyComposer);
                         });
                         thisRef._keysToRegister.length = 0;
-                    })
-                    .done();
+                    });
                 }
             } else {
                 // This will happend only if somebody uses a cached return

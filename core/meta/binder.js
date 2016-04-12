@@ -1,4 +1,3 @@
-"use strict";
 
 /**
  * @module montage/core/meta/binder
@@ -28,7 +27,6 @@ var Binder = exports.Binder = Montage.specialize( /** @lends Binder.prototype # 
      */
     constructor: {
         value: function Binder() {
-            this.superForValue("constructor")();
             this._name = null;
             this.binderModuleId = null;
             this.isDefault = false;
@@ -116,8 +114,7 @@ var Binder = exports.Binder = Montage.specialize( /** @lends Binder.prototype # 
      * @private
      */
     _blueprintForPrototypeTable: {
-        distinct:true,
-        value: {}
+        value: null
     },
 
     /**
@@ -154,8 +151,7 @@ var Binder = exports.Binder = Montage.specialize( /** @lends Binder.prototype # 
     },
 
     _blueprints: {
-        distinct: true,
-        value: []
+        value: null
     },
 
     /**
@@ -165,7 +161,7 @@ var Binder = exports.Binder = Montage.specialize( /** @lends Binder.prototype # 
      */
     blueprints: {
         get: function () {
-            return this._blueprints;
+            return this._blueprints || (this._blueprints = []);
         }
     },
 
@@ -290,4 +286,3 @@ var Binder = exports.Binder = Montage.specialize( /** @lends Binder.prototype # 
     }
 
 });
-

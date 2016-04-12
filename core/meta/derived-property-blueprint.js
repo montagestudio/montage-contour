@@ -1,4 +1,3 @@
-"use strict";
 /**
  * @module montage/core/blueprint
  * @requires core/logger
@@ -18,12 +17,6 @@ var Defaults = {
  * @class DerivedPropertyBlueprint
  */
 exports.DerivedPropertyBlueprint = PropertyBlueprint.specialize( /** @lends DerivedPropertyBlueprint# */ {
-
-    constructor: {
-        value: function DerivedPropertyBlueprint() {
-            this.superForValue("constructor")();
-        }
-    },
 
     serializeSelf: {
         value: function (serializer) {
@@ -71,12 +64,23 @@ exports.DerivedPropertyBlueprint = PropertyBlueprint.specialize( /** @lends Deri
 
     /**
      * List of property blueprints this derived property blueprint depends on.
+     * @private
+     * @type {Array.<PropertyBlueprint>}
+     * @default []
+     */
+    _dependencies: {
+        value: null
+    },
+
+    /**
+     * List of property blueprints this derived property blueprint depends on.
      * @type {Array.<PropertyBlueprint>}
      * @default []
      */
     dependencies: {
-        value: [],
-        distinct:true
+        get: function() {
+            return this._dependencies || (this._dependencies = []);
+        }
     },
 
     /**
@@ -94,4 +98,3 @@ exports.DerivedPropertyBlueprint = PropertyBlueprint.specialize( /** @lends Deri
     }
 
 });
-

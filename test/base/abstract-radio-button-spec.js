@@ -181,7 +181,7 @@ describe("test/base/abstract-radio-button-spec", function () {
             aRadioButton.prepareForActivationEvents();
 
             listeners = em.registeredEventListenersForEventType_onTarget_("press", aRadioButton._pressComposer);
-            expect(listeners[aRadioButton.uuid].listener).toBe(aRadioButton);
+            expect(listeners).toEqual(aRadioButton);
         });
         describe("once prepareForActivationEvents is called", function () {
             beforeEach(function () {
@@ -240,11 +240,11 @@ describe("test/base/abstract-radio-button-spec", function () {
     });
 
     describe("aria", function () {
-        var RadioButton = Montage.create(AbstractRadioButton, {}),
+        var RadioButton = AbstractRadioButton.specialize(),
             aRadioButton;
 
         beforeEach(function () {
-            aRadioButton = RadioButton.create();
+            aRadioButton = new RadioButton();
             aRadioButton.element = MockDOM.element();
         });
 

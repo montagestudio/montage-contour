@@ -15,7 +15,7 @@ var Montage = require("./core").Montage,
  * @extends Montage
  */
 var Template = Montage.specialize( /** @lends Template# */ {
-    _SERIALIZATON_SCRIPT_TYPE: {value: "text/montage-serialization"},
+    _SERIALIZATION_SCRIPT_TYPE: {value: "text/montage-serialization"},
     _ELEMENT_ID_ATTRIBUTE: {value: "data-montage-id"},
     PARAM_ATTRIBUTE: {value: "data-param"},
 
@@ -124,12 +124,6 @@ var Template = Montage.specialize( /** @lends Template# */ {
         },
         set: function (value) {
             this._document = value;
-        }
-    },
-
-    constructor: {
-        value: function Template() {
-            this.super();
         }
     },
 
@@ -318,8 +312,7 @@ var Template = Montage.specialize( /** @lends Template# */ {
                     // Start preloading the resources as soon as possible, no
                     // need to wait for them as the draw cycle will take care
                     // of that when loading the stylesheets into the document.
-                    resources.loadResources(targetDocument)
-                    .done();
+                    resources.loadResources(targetDocument);
                 }
                 return part;
             });
@@ -412,6 +405,10 @@ var Template = Montage.specialize( /** @lends Template# */ {
             var deserializer = this._deserializer,
                 optimizationPromise;
 
+            if (Promise.is(deserializer)) {
+                return deserializer; // Promise return (error raised while deserializing)
+            }
+
             optimizationPromise = this._optimizeObjectsInstantiation();
 
             if (optimizationPromise) {
@@ -456,11 +453,12 @@ var Template = Montage.specialize( /** @lends Template# */ {
             var elements = rootElement.querySelectorAll("*[" + this.PARAM_ATTRIBUTE + "]"),
                 elementsCount = elements.length,
                 element,
+                parameterName,
                 parameters = {};
 
             for (var i = 0; i < elementsCount; i++) {
                 element = elements[i];
-                var parameterName = this.getParameterName(element);
+                parameterName = this.getParameterName(element);
 
                 if (parameterName in parameters) {
                     throw new Error('The parameter "' + parameterName + '" is' +
@@ -691,7 +689,7 @@ var Template = Montage.specialize( /** @lends Template# */ {
      */
     getInlineObjectsString: {
         value: function (doc) {
-            var selector = "script[type='" + this._SERIALIZATON_SCRIPT_TYPE + "']",
+            var selector = "script[type='" + this._SERIALIZATION_SCRIPT_TYPE + "']",
                 script = doc.querySelector(selector);
 
             if (script) {
@@ -714,33 +712,33 @@ var Template = Montage.specialize( /** @lends Template# */ {
     getExternalObjectsString: {
         value: function (doc) {
             var link = doc.querySelector('link[rel="serialization"]'),
-                req,
-                url,
                 deferred;
 
             if (link) {
-                req = new XMLHttpRequest();
-                url = link.getAttribute("href");
-                deferred = Promise.defer();
-
-                req.open("GET", url);
-                req.addEventListener("load", function () {
-                    if (req.status == 200) {
-                        deferred.resolve(req.responseText);
-                    } else {
-                        deferred.reject(
-                            new Error("Unable to retrive '" + url + "', code status: " + req.status)
+                deferred = new Promise(function(resolve, reject) {
+                    var req = new XMLHttpRequest();
+                    var url = link.getAttribute("href");
+                    req.open("GET", url);
+                    req.addEventListener("load", function(event) {
+                        var req = event.target;
+                        if (req.status == 200) {
+                            resolve(req.responseText);
+                        } else {
+                            reject(
+                                new Error("Unable to retrive '" + url + "', code status: " + req.status)
+                            );
+                        }
+                    }, false);
+                    req.addEventListener("error", function(event) {
+                        reject(
+                            new Error("Unable to retrive '" + url + "' with error: " + event.error + ".")
                         );
-                    }
-                }, false);
-                req.addEventListener("error", function (event) {
-                    deferred.reject(
-                        new Error("Unable to retrive '" + url + "' with error: " + event.error + ".")
-                    );
-                }, false);
-                req.send();
+                    }, false);
+                    req.send();
 
-                return deferred.promise;
+                });
+
+                return deferred;
             } else {
                 return Promise.resolve(null);
             }
@@ -776,7 +774,7 @@ var Template = Montage.specialize( /** @lends Template# */ {
              *
              */
             var clonedDocument = document.implementation.createHTMLDocument(""),
-                baseURI = htmlDocument.baseURI || (htmlDocument.location ? htmlDocument.location.href : htmlDocument.URL);
+                baseURI = htmlDocument.baseURI || htmlDocument.URL;
 
             clonedDocument.replaceChild(
                 clonedDocument.importNode(htmlDocument.documentElement, true),
@@ -810,7 +808,7 @@ var Template = Montage.specialize( /** @lends Template# */ {
      */
     _removeObjects: {
         value: function (doc) {
-            var selector = "script[type='" + this._SERIALIZATON_SCRIPT_TYPE + "'], link[rel='serialization']";
+            var selector = "script[type='" + this._SERIALIZATION_SCRIPT_TYPE + "'], link[rel='serialization']";
 
             Array.prototype.forEach.call(
                 doc.querySelectorAll(selector),
@@ -826,7 +824,7 @@ var Template = Montage.specialize( /** @lends Template# */ {
             if (objectsString) {
                 var script = doc.createElement("script");
 
-                script.setAttribute("type", this._SERIALIZATON_SCRIPT_TYPE);
+                script.setAttribute("type", this._SERIALIZATION_SCRIPT_TYPE);
                 script.textContent = JSON.stringify(JSON.parse(objectsString), null, 4);
                 doc.head.appendChild(script);
             }
@@ -1404,7 +1402,7 @@ var TemplateResources = Montage.specialize( /** @lends TemplateResources# */ {
                 for (var i = 0, ii = templateScripts.length; i < ii; i++) {
                     script = templateScripts[i];
 
-                    if (script.type !== this.template._SERIALIZATON_SCRIPT_TYPE) {
+                    if (script.type !== this.template._SERIALIZATION_SCRIPT_TYPE) {
                         scripts.push(script);
                     }
                 }
@@ -1416,18 +1414,22 @@ var TemplateResources = Montage.specialize( /** @lends TemplateResources# */ {
 
     loadScripts: {
         value: function (targetDocument) {
-            var scripts,
-                promises = [];
+            var scripts = this.getScripts(),
+                ii = scripts.length;
 
-            scripts = this.getScripts();
+            if (ii) {
+                var promises = [];
 
-            for (var i = 0, ii = scripts.length; i < ii; i++) {
-                promises.push(
-                    this.loadScript(scripts[i], targetDocument)
-                );
+                for (var i = 0; i < ii; i++) {
+                    promises.push(
+                        this.loadScript(scripts[i], targetDocument)
+                    );
+                }
+
+                return Promise.all(promises);
             }
 
-            return Promise.all(promises);
+            return Promise.resolve();
         }
     },
 
@@ -1568,10 +1570,11 @@ var TemplateArgumentProvider = Montage.specialize({
      * This function asks the provider to return the element that corresponds
      * to the argument with the same name. This element will be used to replace
      * the corresponding element with data-param of the template being expanded.
+     * @param argumentName
      * @private
      */
     getTemplateArgumentElement: {
-        value: function (argumentName) {}
+        value: Function.noop
     },
 
     /**
@@ -1579,10 +1582,11 @@ var TemplateArgumentProvider = Montage.specialize({
      * that refer to the given element ids.
      * The serialization returned will be merged with the serialization of the
      * template being expanded.
+     * @param elementIds
      * @private
      */
     getTemplateArgumentSerialization: {
-        value: function (elementIds) {}
+        value: Function.noop
     },
 
     /**
@@ -1592,10 +1596,11 @@ var TemplateArgumentProvider = Montage.specialize({
      * access to the template where the argument comes from and where the
      * aliases are defined in the serialization block (e.g: ":cell": {alias:
      * "@repetition:iteration"}).
+     * @param templatePropertyLabel
      * @private
      */
     resolveTemplateArgumentTemplateProperty: {
-        value: function (templatePropertyLabel) {}
+        value: Function.noop
     }
 });
 

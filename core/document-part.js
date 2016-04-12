@@ -11,12 +11,6 @@ var DocumentPart = Montage.specialize({
     childComponents: {value: null},
     parameters: {value: null},
 
-    constructor: {
-        value: function DocumentPart() {
-            this.super();
-        }
-    },
-
     initWithTemplateAndFragment: {
         value: function (template, fragment) {
             this.template = template;
@@ -67,31 +61,24 @@ var DocumentPart = Montage.specialize({
     },
 
     _addToDrawList: {
-        value: function () {}
+        value: Function.noop
     },
 
     _componentTreeLoadedDeferred: {value: null},
     loadComponentTree: {
-        value: function () {
-            var deferred = this._componentTreeLoadedDeferred,
-                promises;
+        value: function() {
+            if (!this._componentTreeLoadedDeferred) {
+                var promises = [],
+                    childComponents = this.childComponents;
 
-            if (!deferred) {
-                deferred = Promise.defer();
-                this._componentTreeLoadedDeferred = deferred;
+                for (var i = 0, length = childComponents.length; i < length; i++) {
+                    promises.push(childComponents[i].loadComponentTree());
+                }
 
-                promises = [];
-
-                this.childComponents.forEach(function (childComponent) {
-                    promises.push(childComponent.loadComponentTree());
-                });
-
-                Promise.all(promises).then(function () {
-                    deferred.resolve();
-                }, deferred.reject).done();
+                this._componentTreeLoadedDeferred = Promise.all(promises);
             }
 
-            return deferred.promise;
+            return this._componentTreeLoadedDeferred;
         }
     }
 });

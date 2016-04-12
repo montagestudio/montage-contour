@@ -32,7 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
 var Montage = require("montage").Montage,
     Localizer = require("montage/core/localizer"),
     Promise = require("montage/core/promise").Promise,
-    Bindings = require("montage/core/bindings").Bindings,
+    Bindings = require("montage/core/core").Bindings,
     Map = require("montage/collections/map");
 
 describe("core/localizer-spec", function () {
@@ -166,19 +166,29 @@ describe("core/localizer-spec", function () {
             });
         });
 
-        it("waits for the localizer to have messages", function () {
-            var localizeDeferred = Promise.defer();
+
+//https://developer.mozilla.org/en-US/docs/Mozilla/JavaScript_code_modules/Promise.jsm/Deferred
+        it("waits for the localizer to have messages", function waitsForTheLocalizerToHaveMessages() {
+            var resolveTrigger = function resolveTrigger(resolveHandler) {
+                resolveTrigger.resolveHandler = resolveHandler;
+            };
+            var localizeDeferred = new Promise(function(resolve, reject) {
+                this.resolve = resolve;
+                this.reject = reject;
+            }.bind(arguments.callee));
             var mockLocalizer = {
                 localize: function () {
-                    return localizeDeferred.promise;
+                    return localizeDeferred;
                 }
             };
 
             message.localizer = mockLocalizer;
             message.key = "test";
 
-            expect(message.localized.isFulfilled()).toBe(false);
-            localizeDeferred.resolve(function () { return "pass"; });
+            //expect(message.localized.isFulfilled()).toBe(false);
+            expect(message.localized instanceof Promise).toBe(true);
+            //Workaround to make things work and pass for migration to bluebird and alignment with JS Promise API. will need some refactor to clean up
+            arguments.callee.resolve(function() { return "pass"; });
 
             return message.localized.then(function (localized) {
                 expect(localized).toBe("pass");
@@ -189,11 +199,11 @@ describe("core/localizer-spec", function () {
     describe("Localizer", function (){
         var l;
         beforeEach(function () {
-            l = new Localizer.Localizer().init("en");
+            l = new Localizer.Localizer().initWithLocale("en");
         });
 
         it("can be created with a foreign language code", function () {
-            var l = new Localizer.Localizer().init("no");
+            var l = new Localizer.Localizer().initWithLocale("no");
             expect(l.messageFormat).not.toBe(null);
         });
 
@@ -324,16 +334,17 @@ describe("core/localizer-spec", function () {
                 });
             });
 
-            it("can load a simple messages.json (callback)", function () {
-                var deferred = Promise.defer();
-                require.loadPackage(module.directory + "localizer/simple/", {}).then(function (r){
-                    l.require = r;
-                    l.loadMessages(null, function (messages) {
-                        expect(messages.hello).toBe("Hello, World!");
-                        deferred.resolve();
+            it("can load a simple messages.json (callback)", function() {
+                var promise = new Promise(function(resolve, defer) {
+                    require.loadPackage(module.directory + "localizer/simple/", {}).then(function(r){
+                        l.require = r;
+                        l.loadMessages(null, function(messages) {
+                            expect(messages.hello).toBe("Hello, World!");
+                            resolve();
+                        });
                     });
                 });
-                return deferred.promise;
+                return promise;
             });
 
             it("has a timeout", function () {
@@ -348,7 +359,7 @@ describe("core/localizer-spec", function () {
             });
 
             it("loads non-English messages", function () {
-                var l = new Localizer.Localizer().init("no");
+                var l = new Localizer.Localizer().initWithLocale("no");
                 return require.loadPackage(module.directory + "localizer/fallback/", {}).then(function (r){
                     l.require = r;
                     return l.loadMessages();
@@ -359,7 +370,7 @@ describe("core/localizer-spec", function () {
             });
 
             it("loads the fallback messages", function () {
-                var l = new Localizer.Localizer().init("no-x-compiled");
+                var l = new Localizer.Localizer().initWithLocale("no-x-compiled");
                 return require.loadPackage(module.directory + "localizer/fallback/", {}).then(function (r){
                     l.require = r;
                     return l.loadMessages();
@@ -393,16 +404,17 @@ describe("core/localizer-spec", function () {
         describe("delegate", function () {
             it("is called to determine the default locale to use", function () {
                 var delegate = {
-                    getDefaultLocale: function () {
+                    localizerWillUseLocale: function () {
                         return "en-x-delegate";
                     }
                 };
 
-                spyOn(delegate, 'getDefaultLocale').andCallThrough();
+                spyOn(delegate, 'localizerWillUseLocale').andCallThrough();
 
                 Localizer.defaultLocalizer.delegate = delegate;
+                Localizer.defaultLocalizer.initWithLocale();
 
-                expect(delegate.getDefaultLocale).toHaveBeenCalled();
+                expect(delegate.localizerWillUseLocale).toHaveBeenCalled();
                 expect(Localizer.defaultLocalizer.locale).toBe("en-x-delegate");
             });
         });

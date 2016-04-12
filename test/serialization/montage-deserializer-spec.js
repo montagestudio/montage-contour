@@ -31,7 +31,8 @@ POSSIBILITY OF SUCH DAMAGE.
 var Montage = require("montage").Montage,
     Component = require("montage/ui/component").Component,
     logger = require("montage/core/logger").logger("deserializer-spec"),
-    Deserializer = require("montage/core/serialization").Deserializer,
+    Deserializer = require("montage/core/serialization/deserializer/montage-deserializer").MontageDeserializer,
+    deserialize = require("montage/core/serialization/deserializer/montage-deserializer").deserialize,
     Alias = require("montage/core/serialization/alias").Alias,
     Bindings = require("montage/frb"),
     defaultEventManager = require("montage/core/event/event-manager").defaultEventManager,
@@ -67,7 +68,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 expect(Object.getPrototypeOf(root)).toBe(Montage.prototype);
                 expect(root.number).toBe(42);
                 expect(root.string).toBe("a string");
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -121,7 +122,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserializeObject(instances)
             .then(function (root) {
                 expect(root.simple).toBe(simple);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -152,7 +153,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserializeObject(instances)
             .then(function (root) {
                 expect(root.simple).toBe(simple);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -174,8 +175,8 @@ describe("serialization/montage-deserializer-spec", function () {
 
             return deserializer.deserializeObject()
             .then(function (root) {
-                expect(root).toBe(objects.Singleton.instance);
-            }).fail(function (reason) {
+                expect(root).toBe(objects.Singleton.prototype.instance);
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -203,7 +204,7 @@ describe("serialization/montage-deserializer-spec", function () {
             .then(function (root) {
                 expect(root).toBe(instances.root);
                 expect(instances.root.number).toBe(42);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -230,7 +231,7 @@ describe("serialization/montage-deserializer-spec", function () {
             .then(function (objects) {
                 expect(objects.owner).toBe(instances.owner);
                 expect(instances.owner.number).toBe(42);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -263,7 +264,7 @@ describe("serialization/montage-deserializer-spec", function () {
 
                 expect(root.deserializedFromSerializationCount).toBe(0);
                 expect(oneprop.deserializedFromSerializationCount).toBe(1);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -321,7 +322,7 @@ describe("serialization/montage-deserializer-spec", function () {
             .then(function (objects) {
                 expect(isDeserializing).toBeTruthy();
                 expect(objects.root.isDeserializing).toBeUndefined();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -378,8 +379,9 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            },function() {
                 // it should fail
+                console.log("fail");
             });
         });
 
@@ -396,7 +398,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            }).catch(function() {
                 // it should fail
             });
         });
@@ -414,7 +416,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            }).catch(function() {
                 // it should fail
             });
         });
@@ -432,7 +434,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            }).catch(function() {
                 // it should fail
             });
         });
@@ -450,7 +452,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            }).catch(function() {
                 // it should fail
             });
         });
@@ -478,7 +480,7 @@ describe("serialization/montage-deserializer-spec", function () {
 
                 expect(Object.getPrototypeOf(root)).toBe(objects.TestobjectsV2.prototype);
                 expect(root.instance).toBeUndefined();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -509,7 +511,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 expect(info.objectName).toBe("TestobjectsV2");
                 expect(info.isInstance).toBe(true);
                 expect(root.instance).toBeUndefined();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -537,7 +539,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 expect(info.moduleId).toBe("serialization/module-name.reel");
                 expect(info.objectName).toBe("ModuleName");
                 expect(info.isInstance).toBe(true);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -567,7 +569,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 expect(info.objectName).toBe("TestobjectsV2");
                 expect(info.isInstance).toBe(false);
                 expect(root.type).toBeUndefined();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -597,7 +599,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 expect(info.objectName).toBe("TestobjectsV2");
                 expect(info.isInstance).toBe(false);
                 expect(root.type).toBeUndefined();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -933,7 +935,7 @@ describe("serialization/montage-deserializer-spec", function () {
                     expect(root.uuid in defaultEventManager.registeredEventListeners.action).toBeFalsy();
                 }
                 expect(root._bindingDescriptors).toBeFalsy();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -956,7 +958,7 @@ describe("serialization/montage-deserializer-spec", function () {
             .then(function (root) {
                 expect(type).toBe("prototype");
                 expect(typeValue).toBe("serialization/testobjects-v2[CustomDeserialization]");
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -984,7 +986,7 @@ describe("serialization/montage-deserializer-spec", function () {
             .then(function (root) {
                 expect(type).toBe("object");
                 expect(typeValue).toBe("serialization/testobjects-v2[CustomDeserialization]");
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1004,7 +1006,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserializeObject()
             .then(function (root) {
                 expect(prop1).toBe(3.14);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1027,7 +1029,7 @@ describe("serialization/montage-deserializer-spec", function () {
                     expect(root.uuid in defaultEventManager.registeredEventListeners.action).toBeFalsy();
                 }
                 expect(root._bindingDescriptors).toBeFalsy();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1046,11 +1048,11 @@ describe("serialization/montage-deserializer-spec", function () {
 
             return deserializer.deserializeObject()
             .then(function (root) {
+                var registeredEventListenersForRootAction = defaultEventManager.registeredEventListenersForEventType_onTarget_("action",root);
                 expect(root.prop1).toBe(3.14);
-                expect(defaultEventManager.registeredEventListeners.action).toBeDefined();
-                expect(root.uuid in defaultEventManager.registeredEventListeners.action).toBeTruthy();
+                expect(registeredEventListenersForRootAction).toBeDefined();
                 expect(root._bindingDescriptors).toBeFalsy();
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1075,7 +1077,7 @@ describe("serialization/montage-deserializer-spec", function () {
                 }
 
                 expect(Object.keys(Bindings.getBindings(root)).length).toBeGreaterThan(0);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1094,11 +1096,11 @@ describe("serialization/montage-deserializer-spec", function () {
 
             return deserializer.deserializeObject()
             .then(function (root) {
+                var registeredEventListenersForRootAction = defaultEventManager.registeredEventListenersForEventType_onTarget_("action",root);
                 expect(root.prop1).toBe(3.14);
-                expect(defaultEventManager.registeredEventListeners.action).toBeDefined();
-                expect(root.uuid in defaultEventManager.registeredEventListeners.action).toBeTruthy();
+                expect(registeredEventListenersForRootAction).toBeDefined();
                 expect(Object.keys(Bindings.getBindings(root)).length).toBeGreaterThan(0);
-            }).fail(function (reason) {
+            }).catch(function(reason) {
                 console.log(reason.stack);
                 expect("test").toBe("executed");
             });
@@ -1117,7 +1119,7 @@ describe("serialization/montage-deserializer-spec", function () {
             return deserializer.deserializeObject()
                 .then(function (root) {
                     expect(root).toBe(newRoot);
-                }).fail(function (reason) {
+                }).catch(function(reason) {
                     console.log(reason.stack);
                     expect("test").toBe("executed");
                 });
@@ -1148,22 +1150,6 @@ describe("serialization/montage-deserializer-spec", function () {
         });
     });
 
-    it("should detect a malformed serialization string", function () {
-        var serializationString = "{root:}",
-            valid;
-
-        valid = deserializer.isSerializationStringValid(serializationString);
-        expect(valid).toBe(false);
-    });
-
-    it("should detect a well formed serialization string", function () {
-        var serializationString = '{"root": {"value": 3}}',
-            valid;
-
-        valid = deserializer.isSerializationStringValid(serializationString);
-        expect(valid).toBe(true);
-    });
-
     it("should deserialize null", function () {
         var serialization = {
                 "a": {
@@ -1178,7 +1164,7 @@ describe("serialization/montage-deserializer-spec", function () {
         return deserializer.deserialize(serializationString)
         .then(function (objects) {
             expect(objects.a).toBe(null);
-        }).fail(function (reason) {
+        }).catch(function(reason) {
             console.log(reason.stack);
             expect("test").toBe("executed");
         });
@@ -1207,33 +1193,144 @@ describe("serialization/montage-deserializer-spec", function () {
             }
         });
 
-        it("should fail if serialization is malformed", function () {
-            var serializationString = "{root:}";
-
-            deserializer._serializationString = serializationString;
-
-            return deserializer.deserialize().then(function () {
-                // should never execute
-                expect(true).toBe(false);
-            }, function (reason) {
-                expect(reason).toBeDefined();
-            }).fail(function (reason) {
-                console.log(reason.stack);
-                expect("test").toBe("executed");
-            });
-        });
-
         it("should fail initialization if serialization is malformed", function () {
             var serializationString = "{root:}";
 
-            try {
-                deserializer.init(
-                    serializationString, require);
-                // should never execute
-                expect(true).toBe(false);
-            } catch (ex) {
+            // return a promise when failling.
+            return deserializer.init(serializationString, require).catch(function (ex) {
                 expect(ex).toBeDefined();
-            }
+            });
+        });
+    });
+
+    describe("deserialization", function() {
+        it("should deserialize a serialization string", function() {
+            var serialization = {
+                    "string": {
+                        "value": "a string"
+                    },
+
+                    "number": {
+                        "value": 42
+                    },
+
+                    "literal": {
+                        "value": {
+                            "string": "a string",
+                            "number": 42
+                        }
+                    }
+                },
+                serializationString = JSON.stringify(serialization),
+                expectedResult = {
+                    string: "a string",
+                    number: 42,
+                    literal: {
+                        string: "a string",
+                        number: 42
+                    }
+                },
+                deserializer = new Deserializer().init(serializationString, require);
+
+            return deserializer.deserialize().then(function(objects) {
+                expect(objects).toEqual(expectedResult);
+            });
+        });
+
+        it("should deserialize an object from a serialization string", function() {
+            var serialization = {
+                    "root": {
+                        "value": "a string"
+                    }
+                },
+                serializationString = JSON.stringify(serialization),
+                deserializer = new Deserializer().init(serializationString, require);
+
+            return deserializer.deserializeObject().then(function(object) {
+                expect(object).toBe("a string");
+            });
+        });
+
+        it("should deserialize an external object from a serialization string", function() {
+            var serialization = {
+                    "external": {}
+                },
+                userObjects = {
+                    "external": {}
+                },
+                serializationString = JSON.stringify(serialization),
+                deserializer = new Deserializer().init(serializationString, require);
+
+            return deserializer.deserialize(userObjects).then(function(objects) {
+                expect(userObjects.external).toBe(objects.external);
+            });
+        });
+
+        it("should fail deserializing a missing external object from a serialization string", function() {
+            var serialization = {
+                    "external": {}
+                },
+                serializationString = JSON.stringify(serialization),
+                deserializer = new Deserializer().init(serializationString, require);
+
+            return deserializer.deserialize().then(function(objects) {
+                expect("test").toBe("fail");
+            }, function() {
+                expect(true).toBe(true);
+            });
+        });
+
+        it("should be oblivious to Object.prototype aditions", function() {
+            Object.defineProperty(Object.prototype, "clear", {
+                value: function() {},
+                writable: true,
+                configurable: true
+            });
+
+            var serialization = {
+                    "clear": {
+                        "value": "a string"
+                    }
+                },
+                serializationString = JSON.stringify(serialization),
+                deserializer = new Deserializer().init(serializationString, require);
+
+            return deserializer.deserialize().then(function(object) {
+                delete Object.prototype.clear;
+
+                expect(object.clear).toBe("a string");
+            });
+        });
+
+        describe("shorthand", function() {
+            it("should deserialize an object from a serialization string", function() {
+                var serialization = {
+                        "root": {
+                            "value": "a string"
+                        }
+                    },
+                    serializationString = JSON.stringify(serialization);
+
+                return deserialize(serializationString, require).then(function(object) {
+                    expect(object).toEqual("a string");
+                });
+            });
+        });
+
+        describe("errors", function() {
+            it("should warn about invalid format", function() {
+                // property name is missing quotes
+                var serializationString = '{string: "a string"}';
+
+                return new Promise(function (resolve, reject) {
+                    deserialize(serializationString, require); // will fail
+
+                }).then(function(objects) {
+                    // never executed
+                }, function(reason) {
+                    expect(reason).toBeDefined();
+                });
+            })
         });
     });
 });

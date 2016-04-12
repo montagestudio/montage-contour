@@ -1,7 +1,7 @@
 var Montage = require("../core").Montage;
 var Promise = require("../promise").Promise;
 var Blueprint = require("./blueprint").Blueprint;
-var Deserializer = require("../serialization").Deserializer;
+var Deserializer = require("../serialization/deserializer/montage-deserializer").MontageDeserializer;
 var ModuleReference = require("../module-reference").ModuleReference;
 
 // Cache all loaded blueprints
@@ -27,12 +27,6 @@ var ModuleBlueprint = exports.ModuleBlueprint = Blueprint.specialize(/** @lends 
             self.exportName = exportName;
 
             return self;
-        }
-    },
-
-    initWithNameAndModuleId: {
-        value: function  () {
-            throw new Error("Use initWithModuleAndExportName");
         }
     },
 

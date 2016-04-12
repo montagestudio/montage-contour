@@ -17,13 +17,6 @@ exports.Slot = Component.specialize( /** @lends Slot.prototype # */ {
         value: false
     },
 
-    constructor: {
-        value: function Slot() {
-            this.super();
-            this.content = null;
-        }
-    },
-
     /**
      * An optional helper object.  The slot consults
      * `delegate.slotElementForComponent(component):Element` if available for
@@ -83,13 +76,16 @@ exports.Slot = Component.specialize( /** @lends Slot.prototype # */ {
                 } else {
                     element = value.element;
                 }
+
                 // The child component will need to draw; this may trigger a draw for the slot itself
-                Object.getPropertyDescriptor(Component, "domContent").set.call(this, element);
+                this.domContent = element;
                 this.addChildComponent(value);
                 value.needsDraw = true;
+
             } else {
-                Object.getPropertyDescriptor(Component, "domContent").set.call(this, value);
+                this.domContent = value;
             }
+
             this._content = value;
             this.needsDraw = true;
         }

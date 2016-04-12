@@ -1,6 +1,6 @@
 {
   "name": "montage",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Build your next application with a browser based platform that really gets the web.",
   "repository": {
     "type": "git",
@@ -14,29 +14,29 @@
         "montage": "core/core"
       },
       "mappings": {
-        "mr": {
-          "name": "mr",
-          "location": "packages/mr"
-        },
-        "q": {
-          "name": "q",
-          "location": "packages/mr/packages/q"
+      "mr": {
+        "name": "mr",
+        "location": "node_modules/mr"
+      },
+        "bluebird": {
+          "name": "bluebird",
+          "location": "node_modules/bluebird"
         }
       }
     }
   },
+  "production": true,
   "dependencies": {
-    "collections": "~1.2.2",
+    "collections": "montagejs/collections#master",
     "frb": "~0.2.18",
     "htmlparser2": "~3.0.5",
-    "mousse": "~0.3.0",
-    "mr": "~0.15.3",
-    "q": "1.0.0",
+    "mr": "montagejs/mr#master",
+    "bluebird":"~3.3.1",
     "q-io": "~1.11.0"
   },
   "devDependencies": {
     "jshint": "~2.4.4",
-    "montage-testing": "~0.4.2"
+    "montage-testing": "montagejs/montage-testing"
   },
   "scripts": {
     "test": "node test/node/node-spec.js",

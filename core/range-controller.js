@@ -17,9 +17,9 @@ var observableArrayProperties = require("collections/listen/array-changes").obse
 // sync.
 
 // The controller can determine which content to display and the order in which
-// to render them in a variety of ways. You can either use a "selector" to
-// filter and sort the content or use a "visibleIndexes" array. The controller
-// binds the content of "organizedContent" depending on which strategy you use.
+// to render them in a variety of ways. You can use a "selector" to
+// filter and sort the content. The controller binds the content of
+// "organizedContent" depending on which strategy you use.
 
 // The content of "organizedContent" is then reflected with corresponding
 // incremental changes to "iterations". The "iterations" array will always
@@ -46,7 +46,7 @@ var _RangeSelection = function(content, rangeController) {
     //Moved to RangeSelection.prototype for optimization
     //self.makeObservable();
     self.__proto__ = _RangeSelection.prototype;
-    
+
     self.rangeController = rangeController;
     self.contentEquals = content && content.contentEquals || Object.is;
 
@@ -94,11 +94,11 @@ Object.defineProperty(_RangeSelection.prototype, "push", {
           while (++i < l) {
             x[i] = arguments[i];
           }
-        
+
         this.swap_or_push(this.length, 0, x);
     }
 });
-    
+
 /**
  * A custom version of swap to ensure that changes obey the RangeController
  * invariants:
@@ -159,7 +159,6 @@ Object.defineProperty(_RangeSelection.prototype, "swap_or_push", {
         }
         var diff = plus.length - minus.length;
         var newLength = Math.max(this.length + diff, start + plus.length);
-        var args;
 
         if (!this.rangeController.multiSelect && newLength > 1) {
             // use the last-supplied item as the sole element of the set
@@ -216,10 +215,6 @@ Object.defineProperty(_RangeSelection.prototype, "swap_or_push", {
  * You can use the bindings path expression language (from FRB) to determine
  * the `sortPath` and `filterPath`.
  * There is a `reversed` flag to invert the order of appearance.
- * The `visibleIndexes` property will pluck values from the sorted and filtered
- * content by position, in arbitrary order.
- * The `start` and `length` properties manage a sliding window into the
- * content.
  *
  * The `RangeController` is also responsible for managing which content is
  * selected and provides a variety of knobs for that purpose.
@@ -240,10 +235,7 @@ var RangeController = exports.RangeController = Montage.specialize( /** @lends R
 
             this.sortPath = null;
             this.filterPath = null;
-            this.visibleIndexes = null;
             this.reversed = false;
-            this.start = null;
-            this.length = null;
 
             this.selectAddedContent = false;
             this.deselectInvisibleContent = false;
@@ -253,32 +245,21 @@ var RangeController = exports.RangeController = Montage.specialize( /** @lends R
 
             // The following establishes a pipeline for projecting the
             // underlying content into organizedContent.
-            // The filterPath,
-            // sortedPath, reversed, and visibleIndexes are all optional stages
+            // The filterPath, sortedPath and reversed are all optional stages
             // in that pipeline and used if non-null and in that order.
-            // The _orderedContent variable is a necessary intermediate stage
-            // From which visibleIndexes plucks visible values.
+            // The _filteredContent and _sortedContent are intermediate variables
+            // from which organizedContent is generated.
             this.organizedContent = [];
             // dispatches handleOrganizedContentRangeChange
             this.organizedContent.addRangeChangeListener(this, "organizedContent");
-            this.defineBinding("_orderedContent", {
-                "<-": "content" +
-                    ".($filterPath.defined() ? filter{path($filterPath)} : ())" +
-                    ".($sortPath.defined() ? sorted{path($sortPath)} : ())" +
-                    ".($reversed ?? 0 ? reversed() : ())"
+            this.defineBinding("_filteredContent", {
+                "<-": "$filterPath.defined() ? content.filter{path($filterPath)} : content"
+            });
+            this.defineBinding("_sortedContent", {
+                "<-": "$sortPath.defined() ? _filteredContent.sorted{path($sortPath)} : _filteredContent"
             });
             this.defineBinding("organizedContent.rangeContent()", {
-                "<-": "_orderedContent.(" +
-                    "$visibleIndexes.defined() ?" +
-                    "$visibleIndexes" +
-                        ".filter{<$_orderedContent.length}" +
-                        ".map{$_orderedContent[()]}" +
-                    " : ()" +
-                ").(" +
-                    "$start.defined() && $length.defined() ?" +
-                    "view($start, $length)" +
-                    " : ()" +
-                ")"
+                "<-": "$reversed ?? 0 ? _sortedContent.reversed() : _sortedContent"
             });
 
             this.addRangeAtPathChangeListener("content", this, "handleContentRangeChange");
@@ -336,35 +317,6 @@ var RangeController = exports.RangeController = Montage.specialize( /** @lends R
      */
     filterPath: {value: null},
 
-    /**
-     * An array of indexes to pluck from the ordered and filtered content.
-     * The output will be an array of the corresponding content.
-     * If the `visibleIndexes` is null, all content is accepted.
-     *
-     * @property {Array.<number>}
-     */
-    visibleIndexes: {value: null},
-
-    /**
-     * The first index of a sliding window over the content, suitable for
-     * binding (indirectly) to the scroll offset of a large list.
-     * If `start` or `length` is null, all content is
-     * accepted.
-     *
-     * @property {Number}
-     */
-    start: {value: null},
-
-    /**
-     * The length of a sliding window over the content, suitable for binding
-     * (indirectly) to the scroll height.
-     * If `start` or `length` is null, all content is
-     * accepted.
-     *
-     * @property {Number}
-     */
-    length: {value: null},
-
 
     // Managing Selection
     // ------------------
@@ -420,16 +372,8 @@ var RangeController = exports.RangeController = Montage.specialize( /** @lends R
     // ------------------------------------
 
     /**
-     * The content after it has been sorted, reversed, and filtered, suitable
-     * for plucking visible indexes and/or then the sliding window.
-     *
-     * @private
-     */
-    _orderedContent: {value: null},
-
-    /**
      * An array incrementally projected from `content` through sort,
-     * reversed, filter, visibleIndexes, start, and length.
+     * reversed and filter.
      *
      * @property {Array.<Object>}
      */

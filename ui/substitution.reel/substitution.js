@@ -176,7 +176,7 @@ exports.Substitution = Slot.specialize( /** @lends Substitution.prototype # */ {
         value: function (firstTime) {
             var argumentNames;
 
-            Slot.enterDocument.apply(this, arguments);
+            Slot.prototype.enterDocument.apply(this, arguments);
 
             if (firstTime) {
                 argumentNames = this.getDomArgumentNames();
@@ -214,7 +214,8 @@ exports.Substitution = Slot.specialize( /** @lends Substitution.prototype # */ {
 
     contentDidChange: {
         value: function (newContent, oldContent) {
-            this.super();
+            Slot.prototype.contentDidChange.call(this, newContent, oldContent);
+
             if (this._drawnSwitchValue) {
                 this._switchElements[this._drawnSwitchValue] = oldContent;
             }
@@ -264,7 +265,7 @@ exports.Substitution = Slot.specialize( /** @lends Substitution.prototype # */ {
                     canDrawGate.setField(value + "ComponentTreeLoaded", true);
                     self._canDraw = true;
                     self.needsDraw = true;
-                }).done();
+                });
             } else {
                 this._switchComponentTreeLoaded[value] = true;
                 this.needsDraw = true;

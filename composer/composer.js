@@ -1,9 +1,8 @@
 /**
  * @module montage/composer/composer
- * @requires montage/core/core
+ * @requires montage/core/target
  */
-var Montage = require("../core/core").Montage,
-    Target = require("../core/target").Target;
+var Target = require("../core/target").Target;
 
 /**
  * The `Composer` helps to keep event normalization and calculation out of
@@ -81,10 +80,10 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
      *   `prepareForActivationEvents`.
      *
      * Delaying the creation of event listeners can improve performance.
-     * @default false
+     * @default true
      */
     lazyLoad: {
-        value: false
+        value: true
     },
 
     _needsFrame: {
@@ -103,10 +102,9 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
         set: function (value) {
             if (this._needsFrame !== value) {
                 this._needsFrame = value;
-                if (this._component) {
-                    if (value) {
-                        this._component.scheduleComposer(this);
-                    }
+
+                if (this._component && value) {
+                    this._component.scheduleComposer(this);
                 }
             }
         },
@@ -123,9 +121,7 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
      * @param {Date} timestamp The time that the draw cycle started
      */
     frame: {
-        value: function (timestamp) {
-
-        }
+        value: Function.noop
     },
 
 
@@ -136,22 +132,19 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
      */
     _resolveDefaults: {
         value: function () {
-            if (this.element == null && this.component != null) {
+            if (!this.element && this.element == null && this.component != null) {
                 this.element = this.component.element;
             }
         }
     },
 
-    /**
-     * Invoked by the framework to load this composer.
-     * @private
-     */
-    _load: {
-        value: function () {
-            if (!this.element) {
-                this._resolveDefaults();
-            }
-            this.load();
+    _isLoaded: {
+        value: false
+    },
+
+    isLoaded: {
+        get: function () {
+            return this._isLoaded;
         }
     },
 
@@ -166,9 +159,7 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
      * @function
      */
     load: {
-        value: function () {
-
-        }
+        value: Function.noop
     },
 
     /**
@@ -181,9 +172,7 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
      * @function
      */
     unload: {
-        value: function () {
-
-        }
+        value: Function.noop
     },
 
     /**
@@ -196,6 +185,14 @@ exports.Composer = Target.specialize( /** @lends Composer# */ {
             if (this.component) {
                 this.component.addComposer(this);
             }
+        }
+    }
+
+}, {
+
+    isCoordinateOutsideRadius: {
+        value: function (x, y, radius) {
+            return x * x + y * y > radius * radius;
         }
     }
 

@@ -31,8 +31,8 @@ POSSIBILITY OF SUCH DAMAGE.
 var Montage = require("montage").Montage,
     Target = require("montage/core/target").Target,
     ActionEventListener = require("montage/core/event/action-event-listener").ActionEventListener,
-    Serializer = require("montage/core/serialization").Serializer,
-    Deserializer = require("montage/core/serialization").Deserializer,
+    Serializer = require("montage/core/serialization/serializer/montage-serializer").MontageSerializer,
+    Deserializer = require("montage/core/serialization/deserializer/montage-deserializer").MontageDeserializer,
     TestPageLoader = require("montage-testing/testpageloader").TestPageLoader,
     EventInfo = require("montage-testing/testpageloader").EventInfo,
     MontageReviver = require("montage/core/serialization/deserializer/montage-reviver").MontageReviver,
@@ -206,10 +206,8 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                 var listener = new Montage();
                 testDocument.addEventListener("mousedown", listener, false);
 
-                var listenerEntry = eventManager.registeredEventListeners["mousedown"][testDocument.uuid].listeners[listener.uuid];
-                expect(listenerEntry.bubble).toBe(true);
-                expect(listenerEntry.capture).toBe(false);
-                expect(listenerEntry.listener).toBe(listener);
+                expect(eventManager.registeredEventListenersForEventType_onTarget_phase_("mousedown",testDocument,false)).toEqual(listener);
+                expect(eventManager.registeredEventListenersForEventType_onTarget_phase_("mousedown",testDocument,true)).toBeNull();
             });
 
             it("should add a native event listener when the first listener for an eventType is added for a target", function () {
@@ -279,21 +277,17 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                 var rootEventSpy = {};
                 testDocument.documentElement.addEventListener("foo", rootEventSpy, false);
 
-                var listeners = eventManager.registeredEventListenersForEventType_("foo"),
-                        docListenerEntry = listeners[docEventSpy.uuid],
-                        rootListenerEntry = listeners[rootEventSpy.uuid];
+                var bubbleTestDocumentListeners = eventManager.registeredEventListenersForEventType_onTarget_phase_("foo",testDocument,false);
+                var bubbleTestDocumentElementListeners = eventManager.registeredEventListenersForEventType_onTarget_phase_("foo",testDocument.documentElement,false);
 
-                expect(docListenerEntry).toBeTruthy();
-                expect(rootListenerEntry).toBeTruthy();
+                expect(bubbleTestDocumentListeners).toEqual(docEventSpy);
+                expect(bubbleTestDocumentElementListeners).toEqual(rootEventSpy);
 
-                expect(docListenerEntry.capture).toBeFalsy();
-                expect(rootListenerEntry.capture).toBeFalsy();
+                var captureTestDocumentListeners = eventManager.registeredEventListenersForEventType_onTarget_phase_("foo",testDocument,true);
+                var captureTestDocumentElementListeners = eventManager.registeredEventListenersForEventType_onTarget_phase_("foo",testDocument.documentElement,true);
 
-                expect(docListenerEntry.bubble).toBeTruthy();
-                expect(rootListenerEntry.bubble).toBeTruthy();
-
-                expect(docListenerEntry.listener).toBe(docEventSpy);
-                expect(rootListenerEntry.listener).toBe(rootEventSpy);
+                expect(captureTestDocumentListeners).toBeNull();
+                expect(captureTestDocumentElementListeners).toBeNull();
             });
 
             it("should be able to report all the listeners registered for a specific eventType on a specific target", function () {
@@ -303,16 +297,10 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                 var rootEventSpy = {};
                 testDocument.documentElement.addEventListener("bar", rootEventSpy, false);
 
-                var listeners = eventManager.registeredEventListenersForEventType_onTarget_("bar", testDocument),
-                        docListenerEntry = listeners[docEventSpy.uuid],
-                        rootListenerEntry = listeners[rootEventSpy.uuid];
+                var listeners = eventManager.registeredEventListenersForEventType_onTarget_("bar", testDocument);
 
-                expect(docListenerEntry).toBeTruthy();
-                expect(rootListenerEntry).toBeFalsy();
-
-                expect(docListenerEntry.capture).toBeFalsy();
-                expect(docListenerEntry.bubble).toBeTruthy();
-                expect(docListenerEntry.listener).toBe(docEventSpy);
+                expect(listeners).toEqual(docEventSpy);
+                expect(listeners).toEqual(rootEventSpy);
             });
 
         });
@@ -331,8 +319,8 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                 testDocument.removeEventListener("mousedown", listener2, false);
 
                 var listeners = eventManager.registeredEventListenersForEventType_("mousedown");
-                expect(listeners[listener.uuid]).toBeTruthy();
-                expect(listeners[listener2.uuid]).toBeFalsy();
+                expect(listeners.has(listener)).toBeTruthy();
+                expect(listeners.has(listener2)).toBeFalsy();
             });
 
             it("should remove a registered eventType when the last listener is removed", function () {
@@ -1098,7 +1086,7 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                 eventManager.registerEventHandlerForElement(handler, element);
                 eventManager.unregisterEventHandlerForElement(element);
                 expect(eventManager.eventHandlerForElement(element)).toBeUndefined();
-                expect(eventManager._elementEventHandlerByUUID[handler.uuid]).toBeUndefined();
+                expect(eventManager._elementEventHandlerByElement.get(handler)).toBeUndefined();
             });
 
             it("should override an element's previous event handler", function () {
@@ -1106,10 +1094,10 @@ TestPageLoader.queueTest("eventmanagertest/eventmanagertest", function (testPage
                     handler2 = {name: "handler2"};
 
                 eventManager.registerEventHandlerForElement(handler1, element);
-                expect(eventManager._elementEventHandlerByUUID[handler1.uuid]).toBeDefined();
+                expect(eventManager._elementEventHandlerByElement.get(element)).toBeDefined();
+                expect(eventManager.eventHandlerForElement(element)).toBe(handler1);
                 eventManager.registerEventHandlerForElement(handler2, element);
                 expect(eventManager.eventHandlerForElement(element)).toBe(handler2);
-                expect(eventManager._elementEventHandlerByUUID[handler1.uuid]).toBeUndefined();
             });
 
             it("should install an event handler on an element after the previous one has been uninstalled", function () {

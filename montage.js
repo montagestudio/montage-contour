@@ -1,33 +1,33 @@
 /*global BUNDLE, module: false */
 if (typeof window !== "undefined") {
-
-    // Workaround for window.Touch on desktop browsers
-    if (!("ontouchstart" in window)) {
-        window.Touch = null;
-    }
-
     document._montageTiming = {};
     document._montageTiming.loadStartTime = Date.now();
 
-    // Give a threshold before we decide we need to show the bootstrapper progress
-    // Applications that use our loader will interact with this timeout
-    // and class name to coordinate a nice loading experience. Applications that do not will
-    // just go about business as usual and draw their content as soon as possible.
-    window.addEventListener("DOMContentLoaded", function () {
-        var bootstrappingDelay = 1000;
-        document._montageStartBootstrappingTimeout = setTimeout(function () {
-            document._montageStartBootstrappingTimeout = null;
-
-            var root = document.documentElement;
-            if(!!root.classList) {
-                root.classList.add("montage-app-bootstrapping");
-            } else {
-                root.className = root.className + " montage-app-bootstrapping";
+    console._groupTime = new Map();
+    console.groupTime = function(name) {
+        var groupTimeEntry = this._groupTime.get(name);
+        if(!groupTimeEntry) {
+            groupTimeEntry = {
+                count: 0,
+                start: 0,
+                sum:0
             }
+            this._groupTime.set(name,groupTimeEntry);
+        }
+        groupTimeEntry.start = performance.now();
+    };
+    console.groupTimeEnd = function(name) {
+        var end = performance.now();
+        var groupTimeEntry = this._groupTime.get(name);
+        var time = end - groupTimeEntry.start;
 
-            document._montageTiming.bootstrappingStartTime = Date.now();
-        }, bootstrappingDelay);
-    });
+        groupTimeEntry.count = groupTimeEntry.count+1;
+        groupTimeEntry.sum = groupTimeEntry.sum+time;
+    }
+    console.groupTimeAverage = function(name) {
+        var groupTimeEntry = this._groupTime.get(name);
+        return groupTimeEntry.sum/groupTimeEntry.count;
+    }
 
 }
 
@@ -64,9 +64,11 @@ if (typeof window !== "undefined") {
                 location: Require.getLocation()
             };
 
+            exports.Require = Require;
+
             var montageLocation = URL.resolve(config.location, params.montageLocation);
 
-            config.moduleTypes = ["html", "meta"];
+            config.moduleTypes = ["html", "meta", "mjson"];
 
             // setup the reel loader
             config.makeLoader = function (config) {
@@ -96,14 +98,29 @@ if (typeof window !== "undefined") {
             if (typeof BUNDLE === "object") {
                 var bundleDefinitions = {};
                 var getDefinition = function (name) {
-                    return bundleDefinitions[name] =
-                        bundleDefinitions[name] ||
-                            Promise.defer();
+                     if(!bundleDefinitions[name]) {
+                         var defer = bundleDefinitions[name] = {};
+                         var deferPromise = new Promise(function(resolve, reject) {
+                             defer.resolve = resolve;
+                             defer.reject = reject;
+                         });
+                         defer.promise = deferPromise;
+                         return defer;
+                    }
+
+                    return bundleDefinitions[name];
                 };
                 global.bundleLoaded = function (name) {
                     getDefinition(name).resolve();
                 };
-                var preloading = Promise.defer();
+
+                var preloading = {};
+                var preloadingPromise = new Promise(function(resolve, reject) {
+                    preloading.resolve = resolve;
+                    preloading.reject = reject;
+                });
+                preloading.promise = preloadingPromise;
+
                 config.preloaded = preloading.promise;
                 // preload bundles sequentially
                 var preloaded = Promise.resolve();
@@ -151,32 +168,33 @@ if (typeof window !== "undefined") {
                 // allows the bootstrapping to be remote controlled by the
                 // parent window, with a dynamically generated package
                 // description
-                var trigger = Promise.defer();
                 window.postMessage({
                     type: "montageReady"
                 }, "*");
-                var messageCallback = function (event) {
-                    if (
-                        params.remoteTrigger === event.origin &&
-                        (event.source === window || event.source === window.parent)
-                    ) {
-                        switch (event.data.type) {
-                        case "montageInit":
-                            window.removeEventListener("message", messageCallback);
-                            trigger.resolve([event.data.location, event.data.injections]);
-                            break;
-                        case "isMontageReady":
-                            // allow the injector to query the state in case
-                            // they missed the first message
-                            window.postMessage({
-                                type: "montageReady"
-                            }, "*");
+                var trigger = new Promise(function(resolve, reject){
+                    var messageCallback = function (event) {
+                        if (
+                            params.remoteTrigger === event.origin &&
+                            (event.source === window || event.source === window.parent)
+                        ) {
+                            switch (event.data.type) {
+                            case "montageInit":
+                                window.removeEventListener("message", messageCallback);
+                                resolve([event.data.location, event.data.injections]);
+                                break;
+                            case "isMontageReady":
+                                // allow the injector to query the state in case
+                                // they missed the first message
+                                window.postMessage({
+                                    type: "montageReady"
+                                }, "*");
+                            }
                         }
-                    }
-                };
-                window.addEventListener("message", messageCallback);
+                    };
+                    window.addEventListener("message", messageCallback);
+                });
 
-                applicationRequirePromise = trigger.promise.spread(function (location, injections) {
+                applicationRequirePromise = trigger.spread(function (location, injections) {
                     var promise = Require.loadPackage({
                         location: location,
                         hash: applicationHash
@@ -236,7 +254,7 @@ if (typeof window !== "undefined") {
 
             applicationRequirePromise
             .then(function (applicationRequire) {
-                applicationRequire.loadPackage({
+                return applicationRequire.loadPackage({
                     location: montageLocation,
                     hash: params.montageHash
                 })
@@ -247,8 +265,21 @@ if (typeof window !== "undefined") {
                     if (params.promiseLocation) {
                         promiseLocation = URL.resolve(Require.getLocation(), params.promiseLocation);
                     } else {
-                        promiseLocation = URL.resolve(montageLocation, "packages/mr/packages/q");
+                        //promiseLocation = URL.resolve(montageLocation, "packages/mr/packages/q");
+                        //node tools/build --features="core timers call_get" --browser
+                        promiseLocation = URL.resolve(montageLocation, "node_modules/bluebird");
                     }
+
+                    // var weakMapLocation = URL.resolve(montageLocation,"node_modules/collections/node_modules/weak-map");
+                    // var weakMapDescription = {
+                    //     "name": "weak-map",
+                    //     "version": "1.0.0",
+                    //     "main": "weak-map.js",
+                    //     "readme": "ERROR: No README data found!",
+                    //     "_id": "weak-map@1.0.0",
+                    //     "_from": "weak-map@1.0.0",
+                    //     "scripts": {}
+                    // };
 
                     return [
                         montageRequire,
@@ -256,13 +287,50 @@ if (typeof window !== "undefined") {
                             location: promiseLocation,
                             hash: params.promiseHash
                         })
+                        // ,
+                        // montageRequire.loadPackage({
+                        //     location: weakMapLocation,
+                        //     hash: undefined
+                        // },null,weakMapDescription)
                     ];
                 })
-                .spread(function (montageRequire, promiseRequire) {
+                .spread(function (montageRequire, promiseRequire, weakMapRequire) {
                     montageRequire.inject("core/mini-url", URL);
                     montageRequire.inject("core/promise", {Promise: Promise});
-                    promiseRequire.inject("q", Promise);
+                    promiseRequire.inject("bluebird", Promise);
+                    //This prevents bluebird to be loaded twice by mousse's code
+                    promiseRequire.inject("js/browser/bluebird", Promise);
+                    montageRequire.inject("core/shim/string", String);
 
+                    // weakMapRequire.inject("weak-map", window.WeakMap);
+
+                    /*
+                    var weakMapLocation = URL.resolve(montageLocation,"node_modules/weak-map");
+                    var weakMapDescription = {
+                        "name": "weak-map",
+                        "version": "1.0.0",
+                        "main": "weak-map.js",
+                        "readme": "ERROR: No README data found!",
+                        "_id": "weak-map@1.0.0",
+                        "_from": "weak-map@1.0.0",
+                        "scripts": {}
+                    };
+                    var weakMapConfig = Require.makeRequire().config;
+                    var weakMapRequire = function (require, exports) {
+                        module.exports = window.WeakMap;
+                    };
+                    weakMapRequire.config = weakMapConfig;
+                    Require.injectPackageDescription(weakMapLocation, weakMapDescription, montageRequire.config);
+
+                    Require.injectPackageDescription(weakMapLocation, weakMapDescription, weakMapConfig);
+                    Require.injectLoadedPackageDescription(weakMapLocation, weakMapDescription, weakMapConfig, weakMapRequire);
+                    //Require.injectLoadedPackage(weakMapLocation, weakMapDescription, config);
+
+                    //montageRequire.inject("weak-map", );
+                    //montageRequire.inject("weak-map", window.WeakMap);
+                    // montageRequire.inject("collections/weak-map", window.WeakMap);
+                    // montageRequire.inject("weak-map/weak-map", window.WeakMap);
+*/
                     // install the linter, which loads on the first error
                     config.lint = function (module) {
                         montageRequire.async("core/jshint")
@@ -278,16 +346,15 @@ if (typeof window !== "undefined") {
                                     }
                                 });
                             }
-                        })
-                        .done();
+                        });
                     };
 
                     // Fixe me: transition to .mr only
                     self.require = self.mr = applicationRequire;
-                    platform.initMontage(montageRequire, applicationRequire, params);
+                    return platform.initMontage(montageRequire, applicationRequire, params);
                 });
-            })
-            .done();
+                return applicationRequire;
+            });
 
         });
 
@@ -300,6 +367,16 @@ if (typeof window !== "undefined") {
      @param config
      @param compiler
      */
+    var MontageMetaData = function(require,id,name) {
+      this.require = require;
+      this.module = this.moduleId = id;
+      //moduleId: id, // deprecated
+      this.property = this.objectName = name;
+      //objectName: name, // deprecated
+      this.aliases = [name];
+      this.isInstance = false;
+      return this;
+    };
     var reverseReelExpression = /((.*)\.reel)\/\2$/;
     var reverseReelFunction = function ($0, $1) { return $1; };
     exports.SerializationCompiler = function (config, compile) {
@@ -310,36 +387,24 @@ if (typeof window !== "undefined") {
             var defaultFactory = module.factory;
             module.factory = function (require, exports, module) {
                 defaultFactory.call(this, require, exports, module);
-                for (var name in exports) {
-                    var object = exports[name];
+                var keys = Object.keys(exports),
+                    i, object;
+                for (var i=0, name;(name=keys[i]); i++) {
                     // avoid attempting to initialize a non-object
-                    if (!(object instanceof Object)) {
-                    // avoid attempting to reinitialize an aliased property
-                    //jshint -W106
-                    } else if (object.hasOwnProperty("_montage_metadata") && !object._montage_metadata.isInstance) {
-                        object._montage_metadata.aliases.push(name);
-                        object._montage_metadata.objectName = name;
-                        //jshint +W106
-                    } else if (!Object.isSealed(object)) {
-                        var id = module.id.replace(
-                            reverseReelExpression,
-                            reverseReelFunction
-                        );
-                        Object.defineProperty(
-                            object,
-                            "_montage_metadata",
-                            {
-                                value: {
-                                    require: require,
-                                    module: id,
-                                    moduleId: id, // deprecated
-                                    property: name,
-                                    objectName: name, // deprecated
-                                    aliases: [name],
-                                    isInstance: false
-                                }
-                            }
-                        );
+                    if (((object = exports[name]) instanceof Object)) {
+                        // avoid attempting to reinitialize an aliased property
+                        //jshint -W106
+                        if (object.hasOwnProperty("_montage_metadata") && !object._montage_metadata.isInstance) {
+                            object._montage_metadata.aliases.push(name);
+                            object._montage_metadata.objectName = name;
+                            //jshint +W106
+                        } else if (!Object.isSealed(object)) {
+                            var id = module.id.replace(
+                                reverseReelExpression,
+                                reverseReelFunction
+                            );
+                            object._montage_metadata = new MontageMetaData(require,id,name);
+                        }
                     }
                 }
             };
@@ -357,9 +422,8 @@ if (typeof window !== "undefined") {
      */
     exports.ReelLoader = function (config, load) {
         return function (id, module) {
-            var match = reelExpression.exec(id);
-            if (match) {
-                module.redirect = id + "/" + match[1];
+            if (id.endsWith(".reel")) {
+                module.redirect = id + "/" + reelExpression.exec(id)[1];
                 return module;
             } else {
                 return load(id, module);
@@ -367,7 +431,6 @@ if (typeof window !== "undefined") {
         };
     };
 
-    var metaExpression = /\.meta/;
     /**
      * Allows the .meta files to be loaded as json
      * @see Compiler middleware in require/require.js
@@ -376,8 +439,7 @@ if (typeof window !== "undefined") {
      */
     exports.MetaCompiler = function (config, compile) {
         return function (module) {
-            var json = (module.location || "").match(metaExpression);
-            if (json) {
+            if (module.location && (module.location.endsWith(".meta") || module.location.endsWith(".mjson"))) {
                 module.exports = JSON.parse(module.text);
                 return module;
             } else {
@@ -391,32 +453,30 @@ if (typeof window !== "undefined") {
      *
      * @see Compiler middleware in require/require.js
      * @param config
-     * @param compiler
+     * @param compile
      */
     exports.TemplateCompiler = function (config, compile) {
         return function (module) {
-            if (!module.location)
+            var location = module.location;
+
+            if (!location)
                 return;
-            var match = module.location.match(/(.*\/)?(?=[^\/]+\.html(?:\.load\.js)?$)/);
-            if (match) {
-                module.dependencies = module.dependencies || [];
-                module.exports = {
-                    directory: match[1],
-                    content: module.text
-                };
-                // XXX deprecated
-                Object.defineProperty(module.exports, "root", {
-                    get: function () {
-                        if (typeof console === "object") {
-                            console.warn("'root' property is deprecated on template modules.  Use 'directory' instead of root[1]");
-                        }
-                        return match;
-                    }
-                });
-                return module;
-            } else {
-                compile(module);
+
+            if (location.endsWith(".html") || location.endsWith(".html.load.js")) {
+                var match = location.match(/(.*\/)?(?=[^\/]+)/);
+
+                if (match) {
+                    module.dependencies = module.dependencies || [];
+                    module.exports = {
+                        directory: match[1],
+                        content: module.text
+                    };
+
+                    return module;
+                }
             }
+
+            compile(module);
         };
     };
 
@@ -436,38 +496,76 @@ if (typeof window !== "undefined") {
 
         // mini-url library
         makeResolve: function () {
+
+          if(this._hasURLSupport()) {
+            return function (base, relative) {
+              return new URL(relative, base).href;
+            }
+          }
+          else {
             var head = document.querySelector("head"),
+                currentBaseElement = head.querySelector("base"),
                 baseElement = document.createElement("base"),
-                relativeElement = document.createElement("a");
+                relativeElement = document.createElement("a"),
+                needsRestore = false;
+
+                if(currentBaseElement) {
+                    needsRestore = true;
+                }
+                else {
+                    currentBaseElement = document.createElement("base");
+                }
+
+                //Optimization, we won't check ogain if there's a base tag.
 
             baseElement.href = "";
 
             return function (base, relative) {
-                var currentBaseElement = head.querySelector("base");
-                if (!currentBaseElement) {
-                    head.appendChild(baseElement);
-                    currentBaseElement = baseElement;
+                var restore;
+
+                if (!needsRestore) {
+                    head.appendChild(currentBaseElement);
                 }
+
                 base = String(base);
                 if (!/^[\w\-]+:/.test(base)) { // isAbsolute(base)
                     throw new Error("Can't resolve from a relative location: " + JSON.stringify(base) + " " + JSON.stringify(relative));
                 }
-                var restore = currentBaseElement.href;
+                if(needsRestore) restore = currentBaseElement.href;
                 currentBaseElement.href = base;
                 relativeElement.href = relative;
                 var resolved = relativeElement.href;
-                currentBaseElement.href = restore;
-                if (currentBaseElement === baseElement) {
+                if(needsRestore) currentBaseElement.href = restore;
+                else {
                     head.removeChild(currentBaseElement);
                 }
                 return resolved;
             };
+          }
+
         },
 
-        load: function (location) {
+        __hasURLSupport: null,
+
+        _hasURLSupport: function () {
+            if (!this.__hasURLSupport) {
+                // Testing for window.URL will not help here as it does exist in IE10 and IE11.
+                // but IE supports just the File API specification.
+                try { // window IE 10+ support
+                    this.__hasURLSupport = !!(new URL("")); // 1 parameter required at least.
+                } catch (e) {
+                    this.__hasURLSupport = false;
+                }
+            }
+
+            return this.__hasURLSupport;
+        },
+
+        load: function (location,loadCallback) {
             var script = document.createElement("script");
             script.src = location;
             script.onload = function () {
+                if(loadCallback) loadCallback(script);
                 // remove clutter
                 script.parentNode.removeChild(script);
             };
@@ -540,6 +638,21 @@ if (typeof window !== "undefined") {
             function domLoad() {
                 document.removeEventListener("DOMContentLoaded", domLoad, true);
                 DOM = true;
+
+                // Give a threshold before we decide we need to show the bootstrapper progress
+                // Applications that use our loader will interact with this timeout
+                // and class name to coordinate a nice loading experience. Applications that do not will
+                // just go about business as usual and draw their content as soon as possible.
+                var root = document.documentElement;
+
+                if(!!root.classList) {
+                    root.classList.add("montage-app-bootstrapping");
+                } else {
+                    root.className = root.className + " montage-app-bootstrapping";
+                }
+
+                document._montageTiming.bootstrappingStartTime = Date.now();
+
                 callbackIfReady();
             }
 
@@ -553,19 +666,10 @@ if (typeof window !== "undefined") {
 
             // determine which scripts to load
             var pending = {
-                "require": "packages/mr/require.js",
-                "require/browser": "packages/mr/browser.js",
-                "promise": "packages/mr/packages/q/q.js"
+                "require": "node_modules/mr/require.js",
+                "require/browser": "node_modules/mr/browser.js",
+                "shim-string": "core/shim/string.js" // needed for the `endsWith` function.
             };
-
-            // load in parallel, but only if we're not using a preloaded cache.
-            // otherwise, these scripts will be inlined after already
-            if (typeof BUNDLE === "undefined") {
-                var montageLocation = resolve(window.location, params.montageLocation);
-                for (var id in pending) {
-                    browser.load(resolve(montageLocation, pending[id]));
-                }
-            }
 
             // register module definitions for deferred,
             // serial execution
@@ -579,16 +683,126 @@ if (typeof window !== "undefined") {
                     // equivalent to an array length check
                     return;
                 }
-                // if we get past the for loop, bootstrapping is complete.  get rid
-                // of the bootstrap function and proceed.
-                delete global.bootstrap;
+
                 allModulesLoaded();
             };
+
+            // load in parallel, but only if we're not using a preloaded cache.
+            // otherwise, these scripts will be inlined after already
+            if (typeof BUNDLE === "undefined") {
+                var montageLocation = resolve(window.location, params.montageLocation);
+
+
+                //Special Case bluebird for now:
+                browser.load(resolve(montageLocation, "node_modules/bluebird/js/browser/bluebird.min.js"),function() {
+
+                    if ((typeof MutationObserver !== "undefined") &&
+                              !(typeof window !== "undefined" &&
+                                window.navigator &&
+                                window.navigator.standalone)) {
+                                    (function() {
+                                        var div = document.createElement("div");
+                                        var opts = {attributes: true, attributeFilter:["class"]};
+                                        var toggleScheduled = false;
+                                        var div2 = document.createElement("div");
+                                        var o2 = new MutationObserver(function() {
+                                            div.classList.toggle("foo");
+                                          toggleScheduled = false;
+                                        });
+                                        o2.observe(div2, opts);
+
+                                        var scheduleToggle = function() {
+                                            if (toggleScheduled) return;
+                                            toggleScheduled = true;
+                                            div2.classList.toggle("foo");
+                                        };
+
+                                        scheduledFunctions = [];
+                                        var o = new MutationObserver(function() {
+                                            scheduledFunctions.pop()();
+                                        });
+                                        o.observe(div, opts);
+
+                                        window.Promise.setScheduler( function montageMutationObserverSchedule(fn) {
+                                          scheduledFunctions.unshift(fn);
+                                          scheduleToggle();
+                                      });
+                                    })();
+
+                    } else if(window.postMessage !== void 0) {
+                        // Only add setZeroTimeout to the window object, and hide everything
+                        // else in a closure.
+                        (function() {
+                            var timeouts = [];
+                            var messageName = "zero-timeout-message";
+
+                            window.Promise.setScheduler(function setZeroTimeout(fn) {
+                                timeouts.push(fn);
+                                window.postMessage(messageName, "*");
+                            });
+
+                            function handleMessage(event) {
+                                if (event.source == window && event.data == messageName) {
+                                    event.stopPropagation();
+                                    if (timeouts.length > 0) {
+                                        var fn = timeouts.shift();
+                                        fn();
+                                    }
+                                }
+                            }
+
+                            window.addEventListener("message", handleMessage, true);
+
+                        })();
+                    }
+
+
+                    //global.bootstrap cleans itself from window once all known are loaded. "bluebird" is not known, so needs to do it first
+                    global.bootstrap("bluebird", function (require, exports) {
+                        return window.Promise;
+                    });
+                    global.bootstrap("promise", function (require, exports) {
+                        return window.Promise;
+                    });
+
+                    for (var id in pending) {
+                        browser.load(resolve(montageLocation, pending[id]));
+                    }
+
+                });
+
+            }
+            else {
+                pending.promise = "node_modules/bluebird/js/browser/bluebird.min.js";
+
+                window.nativePromise = window.Promise;
+                Object.defineProperty(window,"Promise", {
+                    set: function(PromiseValue) {
+                        Object.defineProperty(window,"Promise",{value:PromiseValue});
+
+                        global.bootstrap("bluebird", function (require, exports) {
+                            return window.Promise;
+                        });
+                        global.bootstrap("promise", function (require, exports) {
+                            return window.Promise;
+                        });
+                    }
+                });
+            }
+
+            global.bootstrap("shim-string");
 
             // one module loaded for free, for use in require.js, browser.js
             global.bootstrap("mini-url", function (require, exports) {
                 exports.resolve = resolve;
             });
+
+            //Special Case WeakMap for now:
+            // if(typeof window.WeakMap === "function") {
+            //     global.bootstrap("weak-map", function (require, exports) {
+            //         module.exports = window.WeakMap;
+            //     });
+            // }
 
             // miniature module system
             var bootModules = {};
@@ -605,7 +819,11 @@ if (typeof window !== "undefined") {
                 URL = bootRequire("mini-url");
                 Promise = bootRequire("promise");
                 Require = bootRequire("require");
+
+                // if we get past the for loop, bootstrapping is complete.  get rid
+                // of the bootstrap function and proceed.
                 delete global.bootstrap;
+
                 callbackIfReady();
             }
 
@@ -616,15 +834,47 @@ if (typeof window !== "undefined") {
             }
 
         },
+        weakMapModule: function weak_map__weak_map(require, exports, module) {
+            module.exports = window.WeakMap;
+        },
+        weakMapPackageDescription: {
+            "name": "weak-map",
+            "version": "1.0.0",
+            "main": "weak-map.js",
+            "readme": "ERROR: No README data found!",
+            "_id": "weak-map@1.0.0",
+            "_from": "weak-map@1.0.0",
+            "scripts": {}
+        },
+
+        requireWillLoadPackageDescriptionAtLocation: function(location,dependency, config) {
+            if(window.WeakMap && location.indexOf("weak-map") !== -1) {
+                return Promise.resolve(JSON.stringify(this.weakMapPackageDescription));
+            }
+            //console.log("requireWillLoadPackageDescriptionAtLocation(",config,location,")");
+        },
+        didCreatePackage: function(package) {
+            if(package.name === "weak-map") {
+                package.delegate = this;
+            }
+        },
+        packageWillLoadModuleAtLocation: function(module,location) {
+            if(module.id === "weak-map") {
+                module.location = location;
+                module.factory = this.weakMapModule;
+                return Promise.resolve(module);
+            }
+        },
 
         initMontage: function (montageRequire, applicationRequire, params) {
+
+            exports.Require.delegate = this;
 
             var dependencies = [
                 "core/core",
                 "core/event/event-manager",
                 "core/serialization/deserializer/montage-reviver",
-                "core/logger",
-                "core/deprecate"
+                "core/logger"
             ];
 
             var Promise = montageRequire("core/promise").Promise;
@@ -632,20 +882,16 @@ if (typeof window !== "undefined") {
             return Promise.all(dependencies.map(montageRequire.deepLoad))
             .then(function () {
 
-                dependencies.forEach(montageRequire);
+                for(var i=0,iDependency;(iDependency = dependencies[i]);i++) {
+                  montageRequire(iDependency);
+                }
 
                 var Montage = montageRequire("core/core").Montage;
                 var EventManager = montageRequire("core/event/event-manager").EventManager;
                 var MontageReviver = montageRequire("core/serialization/deserializer/montage-reviver").MontageReviver;
                 var logger = montageRequire("core/logger").logger;
-                var deprecate = montageRequire("core/deprecate");
 
                 var defaultEventManager, application;
-
-                // Setup Promise's longStackTrace support option
-                logger("Promise stacktrace support", function (state) {
-                    Promise.longStackSupport = !!state;
-                });
 
                 // Load the event-manager
                 defaultEventManager = new EventManager().initWithWindow(window);
@@ -669,22 +915,13 @@ if (typeof window !== "undefined") {
                 return appModulePromise.then(function (exports) {
                     var Application = exports[(applicationLocation ? applicationLocation.objectName : "Application")];
                     application = new Application();
-                    Object.defineProperty(window.document, "application", {
-                        get: deprecate.deprecateMethod(
-                            null,
-                            function () {
-                                return exports.application;
-                            },
-                            "document.application is deprecated, use require(\"montage/core/application\").application instead."
-                            )
-                    });
                     defaultEventManager.application = application;
                     application.eventManager = defaultEventManager;
-                    application._load(applicationRequire, function () {
+
+                    return application._load(applicationRequire, function() {
                         if (params.module) {
                             // If a module was specified in the config then we initialize it now
-                            applicationRequire.async(params.module)
-                            .done();
+                            applicationRequire.async(params.module);
                         }
                         if (typeof global.montageDidLoad === "function") {
                             global.montageDidLoad();
@@ -692,8 +929,7 @@ if (typeof window !== "undefined") {
                     });
                 });
 
-            })
-            .done();
+            });
 
         }
     };

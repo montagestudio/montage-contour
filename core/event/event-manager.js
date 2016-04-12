@@ -17,14 +17,20 @@
  */
 
 var Montage = require("../core").Montage,
-    UUID = require("../uuid"),
     MutableEvent = require("./mutable-event").MutableEvent,
     Serializer = require("core/serialization/serializer/montage-serializer").MontageSerializer,
     Deserializer = require("core/serialization/deserializer/montage-deserializer").MontageDeserializer,
+    Map = require("collections/map"),
+    WeakMap = require("collections/weak-map"),
+    currentEnvironment = require("../environment").currentEnvironment,
     defaultEventManager;
 
 // XXX Does not presently function server-side
 if (typeof window !== "undefined") { // client-side
+
+    Map = window.Map || Map;
+    WeakMap = window.WeakMap || WeakMap;
+
     // jshint -W015
     /* This is to handle browsers that have TouchEvents but don't have the global constructor function Touch */
     if (typeof window.Touch === "undefined" && "ontouchstart" in window) {
@@ -33,7 +39,7 @@ if (typeof window !== "undefined") { // client-side
         (function () {
             var onFirstTouchstart;
 
-            document.addEventListener("touchstart", onFirstTouchstart = function (event) {
+            document.addEventListener("touchstart", onFirstTouchstart = function onFirstTouchstart(event) {
                 window.Touch = event.touches[0].constructor;
                 if (document.nativeRemoveEventListener) {
                     document.nativeRemoveEventListener("touchstart", onFirstTouchstart, true);
@@ -102,141 +108,6 @@ if (typeof window !== "undefined") { // client-side
             enumerable: false,
             writable: true,
             value: 0
-        }
-    });
-
-    var _PointerStorage = Montage.specialize({
-
-        memory: {
-            value: {}
-        },
-        add: {
-            value: function (identifier, clientX, clientY, timeStamp) {
-                var identifierEntry;
-                if (!(identifierEntry = this.memory[identifier])) {
-                    identifierEntry = this.memory[identifier] = new _PointerStorageMemoryEntry(identifier);
-                }
-                if (!(data = identifierEntry.data[identifierEntry.pos])) {
-                    data = identifierEntry.data[identifierEntry.pos] = new _StoredEvent(clientX, clientY, timeStamp);
-                }
-                else {
-                    data.clientX = clientX;
-                    data.clientY = clientY;
-                    data.timeStamp = timeStamp;
-                }
-                if (identifierEntry.size < identifierEntry.data.length) {
-                    identifierEntry.size++;
-                }
-                identifierEntry.pos = (identifierEntry.pos + 1) % identifierEntry.data.length;
-            }
-        },
-        remove: {
-            value: function (identifier) {
-                delete this.memory[identifier];
-            }
-        },
-        clear: {
-            value: function (identifier) {
-                if (this.memory[identifier]) {
-                    this.memory[identifier].size = 0;
-                    this.memory[identifier].velocity.velocity.clearCache();
-                }
-            }
-        },
-        getMemory: {
-            value: function (identifier) {
-                return this.memory[identifier];
-            }
-        },
-        isStored: {
-            value: function (identifier) {
-                return (this.memory[identifier] && (this.memory[identifier].size > 0));
-            }
-        },
-
-        /**
-         * Created a dedicated type, _PointerVelocity and cached the instance of _PointerVelocity used per identifier,
-         * which is typically mouse/touch. This
-         */
-
-        pointerVelocity: {
-            value: function (identifier) {
-                if (this.memory[identifier]) {
-                    return this.memory[identifier].velocity;
-                }
-            }
-        },
-        storeEvent: {
-            value: function (event) {
-                var i;
-                switch (event.type) {
-                    case "mousedown":
-                        defaultEventManager._isMouseDragging = true;
-                    // roll into mousemove. break omitted intentionally.
-                    case "mousemove":
-                        if (defaultEventManager._isStoringMouseEventsWhileDraggingOnly) {
-                            if (defaultEventManager._isMouseDragging) {
-                                this.add("mouse", event.clientX, event.clientY, event.timeStamp);
-                                Object.defineProperty(event, "velocity", {
-                                    get: function () {
-                                        return defaultEventManager.pointerMotion("mouse").velocity;
-                                    },
-                                    set: function () {
-                                    }
-                                });
-                            }
-                        } else {
-                            this.add("mouse", event.clientX, event.clientY, event.timeStamp);
-                            Object.defineProperty(event, "velocity", {
-                                get: function () {
-                                    return defaultEventManager.pointerMotion("mouse").velocity;
-                                },
-                                set: function () {
-                                }
-                            });
-                        }
-                        break;
-                    case "mouseup":
-                        this.add("mouse", event.clientX, event.clientY, event.timeStamp);
-                        Object.defineProperty(event, "velocity", {
-                            get: function () {
-                                return defaultEventManager.pointerMotion("mouse").velocity;
-                            },
-                            set: function () {
-                            }
-                        });
-                        break;
-                    case "touchstart":
-                    case "touchmove":
-                        for (i = 0; i < event.touches.length; i++) {
-                            this.add(event.touches[i].identifier, event.touches[i].clientX, event.touches[i].clientY, event.timeStamp);
-                        }
-                        break;
-                    case "touchend":
-                        for (i = 0; i < event.changedTouches.length; i++) {
-                            this.add(event.changedTouches[i].identifier, event.changedTouches[i].clientX, event.changedTouches[i].clientY, event.timeStamp);
-                        }
-                        break;
-                }
-            }
-        },
-        removeEvent: {
-            value: function (event) {
-                var i;
-                switch (event.type) {
-                    case "mouseup":
-                        defaultEventManager._isMouseDragging = false;
-                        if (defaultEventManager._isStoringMouseEventsWhileDraggingOnly) {
-                            this.clear("mouse");
-                        }
-                        break;
-                    case "touchend":
-                        for (i = 0; i < event.changedTouches.length; i++) {
-                            this.remove(event.changedTouches[i].identifier);
-                        }
-                        break;
-                }
-            }
         }
     });
 
@@ -331,113 +202,50 @@ if (typeof window !== "undefined") { // client-side
         }
     });
 
-    /*
-     eventTypeRegistration[target.uuid] = {target: target, listeners: {}};
-     eventTypeRegistration[target.uuid].listeners[listener.uuid] = {listener: listener, capture: useCapture, bubble: !useCapture};
-     */
-    var _TargetRegistration = function () {
-        this.listeners = {};
-        return this;
-    };
 
-    _TargetRegistration._pool = [];
-    _TargetRegistration.checkoutRegistration = function () {
-        return (this._pool.length === 0) ? (new this()) : this._pool.pop();
-    };
-    _TargetRegistration.checkinRegistration = function (aTargetRegistration) {
-        aTargetRegistration.target = null;
-        //aTargetRegistration.listeners = {};
-        this._pool.push(aTargetRegistration);
-    };
+    function _serializeObjectRegisteredEventListenersForPhase(serializer,object,registeredEventListeners,eventListenerDescriptors,capture) {
+        var type, listenerRegistrations, listeners, mapIter;
+        mapIter = registeredEventListeners.keys();
 
-    Object.defineProperties(_TargetRegistration.prototype,
-
-        {
-            target: {
-                enumerable: false,
-                writable: true,
-                value: null
-            },
-            listeners: {
-                enumerable: false,
-                writable: true,
-                value: null
+        while (type = mapIter.next().value) {
+            listenerRegistrations = registeredEventListeners.get(type);
+            listeners = listenerRegistrations && listenerRegistrations.get(object);
+            if(Array.isArray(listeners) && listeners.length > 0) {
+                listeners.forEach(function(aListener) {
+                    eventListenerDescriptors.push({
+                        type: type,
+                        listener: serializer.addObjectReference(aListener),
+                        capture: capture
+                    });
+                });
+            }
+            else if(listeners){
+                eventListenerDescriptors.push({
+                    type: type,
+                    listener: serializer.addObjectReference(listeners),
+                    capture: capture
+                });
             }
         }
-    );
+    }
 
-    var _TargetListenerRegistration = function () {
-        return this;
-    };
 
-    _TargetListenerRegistration._pool = [];
-    _TargetListenerRegistration.checkoutRegistration = function () {
-        return (this._pool.length === 0) ? (new this()) : this._pool.pop();
-    };
-    _TargetListenerRegistration.checkinRegistration = function (aTargetListenerRegistration) {
-        aTargetListenerRegistration.listener = null;
-        this._pool.push(aTargetListenerRegistration);
-    };
-
-    Object.defineProperties(_TargetListenerRegistration.prototype,
-
-        {
-            initWithListener: {
-                value: function (listener, capture, bubble) {
-                    this.listener = listener;
-                    this.capture = capture;
-                    this.bubble = bubble;
-                    return this;
-                }
-            },
-            listener: {
-                enumerable: false,
-                writable: true,
-                value: null
-            },
-            capture: {
-                enumerable: false,
-                writable: true,
-                value: true
-            },
-            bubble: {
-                enumerable: false,
-                writable: true,
-                value: false
-            }
-        }
-    );
-
-    Serializer.defineSerializationUnit("listeners", function (serializer, object) {
+    Serializer.defineSerializationUnit("listeners", function listenersSerializationUnit(serializer, object) {
         var eventManager = defaultEventManager,
-            uuid = object.uuid,
             eventListenerDescriptors = [],
             descriptors,
             descriptor,
             listener;
 
-        for (var type in eventManager.registeredEventListeners) {
-            descriptors = eventManager.registeredEventListeners[type];
-            descriptor = descriptors && descriptors[uuid];
-            if (descriptor) {
-                for (var listenerUuid in descriptor.listeners) {
-                    listener = descriptor.listeners[listenerUuid];
-
-                    eventListenerDescriptors.push({
-                        type: type,
-                        listener: serializer.addObjectReference(listener.listener),
-                        capture: listener.capture
-                    });
-                }
-            }
-        }
+            _serializeObjectRegisteredEventListenersForPhase(serializer, object,eventManager._registeredCaptureEventListeners,eventListenerDescriptors,true);
+            _serializeObjectRegisteredEventListenersForPhase(serializer, object,eventManager._registeredBubbleEventListeners,eventListenerDescriptors,false);
 
         if (eventListenerDescriptors.length > 0) {
             return eventListenerDescriptors;
         }
     });
 
-    Deserializer.defineDeserializationUnit("listeners", function (deserializer, object, listeners) {
+    Deserializer.defineDeserializationUnit("listeners", function listenersDeserializationUnit(deserializer, object, listeners) {
         for (var i = 0, listener; (listener = listeners[i]); i++) {
             object.addEventListener(listener.type, listener.listener, listener.capture);
         }
@@ -459,10 +267,31 @@ if (typeof window !== "undefined") { // client-side
          */
         constructor: {
             value: function EventManager () {
-                this.super();
+                this._trackingTouchStartList = new Map();
+                this._trackingTouchEndList = new Map();
+
+                this._claimedPointers = new Map();
+                this._registeredCaptureEventListeners = new Map();
+                this._registeredBubbleEventListeners = new Map();
+                this._observedTarget_byEventType_ = Object.create(null);
+                this._currentDispatchedTargetListeners = new Map();
+                this._elementEventHandlerByElement = new WeakMap();
+                this.environment = currentEnvironment;
+                this._trackingTouchTimeoutIDs = new Map();
+                return this;
             }
         },
-
+        spliceOne: {
+            value: function spliceOne(arr, index) {
+                var len=arr.length;
+                if (!len) { return }
+                while (index<len) {
+                    arr[index] = arr[index+1];
+                    index++
+                }
+                arr.length--;
+            }
+        },
         /**
          * Utility
          * @see ClipboardEvent http://dev.w3.org/2006/webapi/clipops/clipops.html#event-types-and-details
@@ -553,7 +382,22 @@ if (typeof window !== "undefined") { // client-side
                 touchmove: {bubbles: true, cancelable: true}, //TouchEvent
                 touchstart: {bubbles: true, cancelable: true}, //TouchEvent
                 unload: {bubbles: false, cancelable: false}, //DOM2, DOM3
-                wheel: {bubbles: true, cancelable: true} //DOM3
+                wheel: {bubbles: true, cancelable: true}, //DOM3
+                pointerdown: {bubbles: true, cancelable: true}, //PointerEvent
+                pointerup: {bubbles: true, cancelable: true}, //PointerEvent
+                pointerenter: {bubbles: false, cancelable: true}, //PointerEvent
+                pointercancel: {bubbles: true, cancelable: true}, //PointerEvent
+                pointerout: {bubbles: true, cancelable: true}, //PointerEvent
+                pointerover: {bubbles: true, cancelable: true}, //PointerEvent
+                pointerleave: {bubbles: false, cancelable: true}, //PointerEvent
+                pointermove: {bubbles: true, cancelable: true}, //PointerEvent
+                MSPointerDown: {bubbles: true, cancelable: true}, //MSPointerEvent
+                MSPointerMove: {bubbles: true, cancelable: true}, //PointerEvent
+                MSPointerUp: {bubbles: true, cancelable: true}, //MSPointerEvent
+                MSPointerOver: {bubbles: true, cancelable: true}, //MSPointerEvent
+                MSPointerOut: {bubbles: true, cancelable: true}, //MSPointerEvent
+                MSPointerHover: {bubbles: true, cancelable: true}//MSPointerEvent
+
             }
         },
 
@@ -636,7 +480,7 @@ if (typeof window !== "undefined") { // client-side
          * @private
          */
         _windowsAwaitingFinalRegistration: {
-            value: {},
+            value: (new WeakMap),
             enumerable: false
         },
 
@@ -680,11 +524,7 @@ if (typeof window !== "undefined") { // client-side
                     this._registeredWindows = [];
                 }
 
-                if (!aWindow.uuid || aWindow.uuid.length === 0) {
-                    aWindow.uuid = UUID.generate();
-                }
-
-                if (this._windowsAwaitingFinalRegistration[aWindow.uuid] === aWindow) {
+                if (this._windowsAwaitingFinalRegistration.has(aWindow)) {
                     return;
                 }
 
@@ -701,7 +541,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: aWindow.addEventListener
                 });
-                Object.getPrototypeOf(aWindow.document).nativeAddEventListener = aWindow.document.addEventListener;
+
+                aWindow.document.nativeAddEventListener = aWindow.document.addEventListener;
                 aWindow.XMLHttpRequest.prototype.nativeAddEventListener = aWindow.XMLHttpRequest.prototype.addEventListener;
                 if (aWindow.Worker) {
                     aWindow.Worker.prototype.nativeAddEventListener = aWindow.Worker.prototype.addEventListener;
@@ -715,7 +556,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: aWindow.removeEventListener
                 });
-                Object.getPrototypeOf(aWindow.document).nativeRemoveEventListener = aWindow.document.removeEventListener;
+
+                aWindow.document.nativeRemoveEventListener = aWindow.document.removeEventListener;
                 aWindow.XMLHttpRequest.prototype.nativeRemoveEventListener = aWindow.XMLHttpRequest.prototype.removeEventListener;
                 if (aWindow.Worker) {
                     aWindow.Worker.prototype.nativeRemoveEventListener = aWindow.Worker.prototype.removeEventListener;
@@ -730,8 +572,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: (aWindow.XMLHttpRequest.prototype.addEventListener =
                         aWindow.Element.prototype.addEventListener =
-                            Object.getPrototypeOf(aWindow.document).addEventListener =
-                                function (eventType, listener, useCapture) {
+                            aWindow.document.addEventListener =
+                                function addEventListener(eventType, listener, useCapture) {
                                     return aWindow.defaultEventManager.registerEventListener(this, eventType, listener, !!useCapture);
                                 })
                 });
@@ -747,8 +589,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: (aWindow.XMLHttpRequest.prototype.removeEventListener =
                         aWindow.Element.prototype.removeEventListener =
-                            Object.getPrototypeOf(aWindow.document).removeEventListener =
-                                function (eventType, listener, useCapture) {
+                            aWindow.document.removeEventListener =
+                                function removeEventListener(eventType, listener, useCapture) {
                                     return aWindow.defaultEventManager.unregisterEventListener(this, eventType, listener, !!useCapture);
                                 })
                 });
@@ -783,23 +625,13 @@ if (typeof window !== "undefined") { // client-side
                 }
 
                 /**
-                 * HTML element event handler UUID
-                 *
-                 * @member external:Element#eventHandlerUUID
-                 */
-                Montage.defineProperty(aWindow.Element.prototype, "eventHandlerUUID", {
-                    value: undefined,
-                    enumerable: false
-                });
-
-                /**
                  * The component instance directly associated with the specified element.
                  *
                  * @member external:Element#component
                  */
                 Montage.defineProperty(aWindow.Element.prototype, "component", {
                     get: function () {
-                        return defaultEventManager._elementEventHandlerByUUID[this.eventHandlerUUID];
+                        return defaultEventManager._elementEventHandlerByElement.get(this);
                     },
                     enumerable: false
                 });
@@ -812,7 +644,7 @@ if (typeof window !== "undefined") { // client-side
                 defaultEventManager = aWindow.defaultEventManager = exports.defaultEventManager = this;
                 this._registeredWindows.push(aWindow);
 
-                this._windowsAwaitingFinalRegistration[aWindow.uuid] = aWindow;
+                this._windowsAwaitingFinalRegistration.set(aWindow,aWindow);
 
                 // Some registration demands the window's dom be accessible
                 // only finalize registration when that's true
@@ -821,6 +653,12 @@ if (typeof window !== "undefined") { // client-side
                 } else {
                     aWindow.document.addEventListener("DOMContentLoaded", this, true);
                 }
+
+
+
+                this._evaluateShouldDispatchEventCondition();
+
+
             }
         },
 
@@ -828,11 +666,11 @@ if (typeof window !== "undefined") { // client-side
             enumerable: false,
             value: function (aWindow) {
 
-                if (this._windowsAwaitingFinalRegistration[aWindow.uuid] !== aWindow) {
+                if (!this._windowsAwaitingFinalRegistration.has(aWindow)) {
                     throw "EventManager wasn't expecting to register this window";
                 }
 
-                delete this._windowsAwaitingFinalRegistration[aWindow.uuid];
+                this._windowsAwaitingFinalRegistration.delete(aWindow);
 
                 this._listenToWindow(aWindow);
                 // TODO uninstall DOMContentLoaded listener if all windows finalized
@@ -862,7 +700,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: aWindow.nativeAddEventListener
                 });
-                Object.getPrototypeOf(aWindow.document).addEventListener = aWindow.document.nativeAddEventListener;
+
+                aWindow.document.addEventListener = aWindow.document.nativeAddEventListener;
                 aWindow.XMLHttpRequest.prototype.addEventListener = aWindow.XMLHttpRequest.prototype.nativeAddEventListener;
                 if (aWindow.Worker) {
                     aWindow.Worker.prototype.addEventListener = aWindow.Worker.prototype.nativeAddEventListener;
@@ -873,7 +712,8 @@ if (typeof window !== "undefined") { // client-side
                     configurable: true,
                     value: aWindow.nativeRemoveEventListener
                 });
-                Object.getPrototypeOf(aWindow.document).removeEventListener = aWindow.document.nativeRemoveEventListener;
+
+                aWindow.document.removeEventListener = aWindow.document.nativeRemoveEventListener;
                 aWindow.XMLHttpRequest.prototype.removeEventListener = aWindow.XMLHttpRequest.prototype.nativeRemoveEventListener;
                 if (aWindow.Worker) {
                     aWindow.Worker.prototype.removeEventListener = aWindow.Worker.prototype.nativeRemoveEventListener;
@@ -909,7 +749,7 @@ if (typeof window !== "undefined") { // client-side
                 delete aWindow.Element.prototype.nativeAddEventListener;
                 delete aWindow.nativeAddEventListener;
 
-                delete Object.getPrototypeOf(aWindow.document).nativeAddEventListener;
+                delete aWindow.document.nativeAddEventListener;
                 delete aWindow.XMLHttpRequest.prototype.nativeAddEventListener;
                 if (aWindow.Worker) {
                     delete aWindow.Worker.prototype.nativeAddEventListener;
@@ -918,13 +758,12 @@ if (typeof window !== "undefined") { // client-side
                 delete aWindow.Element.prototype.nativeRemoveEventListener;
                 delete aWindow.nativeRemoveEventListener;
 
-                delete Object.getPrototypeOf(aWindow.document).nativeRemoveEventListener;
+                delete aWindow.document.nativeRemoveEventListener;
                 delete aWindow.XMLHttpRequest.prototype.nativeRemoveEventListener;
                 if (aWindow.Worker) {
                     delete aWindow.Worker.prototype.nativeRemoveEventListener;
                 }
 
-                delete aWindow.Element.prototype.eventHandlerUUID;
                 delete aWindow.Element.prototype.component;
 
                 this._stopListeningToWindow(aWindow);
@@ -975,33 +814,39 @@ if (typeof window !== "undefined") { // client-side
          */
         registeredEventListenersForEventType_: {
             value: function (eventType) {
-                var eventTypeEntry = this.registeredEventListeners[eventType],
-                    targetUid,
-                    listenerEntries,
-                    listenerUid,
-                    listeners;
+                var captureRegistration = this._registeredCaptureEventListeners.get(eventType),
+                    bubbleRegistration = this._registeredBubbleEventListeners.get(eventType),
+                    result = null;
 
-                if (!eventTypeEntry) {
-                    return null;
+                if(captureRegistration) {
+                    captureRegistration.forEach(function(listeners, target, map) {
+                        if(listeners && listeners.length > 0) {
+                            if(!result) result = [];
+                            listeners.forEach(function(aListener) {
+                                result.push(aListener);
+                            });
+                        }
+                    });
                 }
 
-                listeners = {};
-
-                for (targetUid in eventTypeEntry) {
-                    listenerEntries = eventTypeEntry[targetUid].listeners;
-
-                    for (listenerUid in listenerEntries) {
-                        listeners[listenerUid] = listenerEntries[listenerUid];
-                    }
+                if(bubbleRegistration) {
+                    bubbleRegistration.forEach(function(listeners, target, map) {
+                        if(listeners && listeners.length > 0) {
+                            if(!result) result = [];
+                            listeners.forEach(function(aListener) {
+                                result.push(aListener);
+                            });
+                        }
+                    });
                 }
 
-                return listeners;
+                return result;
             }
         },
 
         /**
-         * Returns the dictionary of all listeners registered for
-         * the specified eventType on the specified target.
+         * Returns the list of all listeners registered for
+         * the specified eventType on the specified target, regardless of the phase.
          *
          * @function
          * @param {Event} eventType - The event type.
@@ -1010,25 +855,56 @@ if (typeof window !== "undefined") { // client-side
          */
         registeredEventListenersForEventType_onTarget_: {
             enumerable: false,
-            value: function (eventType, target, application) {
+            value: function (eventType, target) {
 
-                var eventRegistration,
-                    targetRegistration;
+                var captureRegistration = this._registeredCaptureEventListeners.get(eventType),
+                    bubbleRegistration = this._registeredBubbleEventListeners.get(eventType),
+                    listeners,
+                    result = null;
 
-                if (target === application) {
-                    eventRegistration = application.eventManager.registeredEventListeners[eventType];
-                } else {
-                    eventRegistration = this.registeredEventListeners[eventType];
-                }
-
-                if (!eventRegistration || !target) {
+                if (!eventType || !target || (!captureRegistration && !bubbleRegistration)) {
                     return null;
                 } else {
-                    targetRegistration = eventRegistration[target.uuid];
-
-                    return targetRegistration ? targetRegistration.listeners : null;
+                    listeners = captureRegistration ? captureRegistration.get(target) : null;
+                    if(listeners) {
+                        if(!result) result = listeners;
+                    }
+                    listeners = bubbleRegistration ? bubbleRegistration.get(target) : null;
+                    if(listeners) {
+                        if(!result) result = listeners;
+                        else result = result.union(listeners);
+                    }
+                    return result;
                 }
             }
+        },
+
+        /**
+         * Returns all listeners registered for
+         * the specified eventType on the specified target and specified phase.
+         *
+         * @function
+         * @param {Event} eventType - The event type.
+         * @param {Event} target - The event target.
+         * @returns {?ActionEventListener}
+         */
+        registeredEventListenersForEventType_onTarget_phase_: {
+            enumerable: false,
+            value: function (eventType, target, capture) {
+                if(!target) return null;
+                return this._registeredEventListenersForEventType_onTarget_registeredEventListeners_(eventType, target, (capture ? this._registeredCaptureEventListeners : this._registeredBubbleEventListeners));
+            }
+        },
+        _registeredEventListenersForEventType_onTarget_registeredEventListeners_: {
+            value: function (eventType, target, registeredEventListeners) {
+
+                //0.02224230716159459 on Samsung Galaxy Tab3 7"
+                var result = registeredEventListeners.get(eventType);
+                return result
+                ? result.get(target)
+                : null;
+            },
+            enumerable: false
         },
 
         /**
@@ -1044,14 +920,27 @@ if (typeof window !== "undefined") { // client-side
 
                 var eventType,
                     eventRegistration,
-                    observedEventListeners = [];
+                    _registeredCaptureEventListeners = this._registeredCaptureEventListeners,
+                    _registeredBubbleEventListeners = this._registeredBubbleEventListeners,
+                    observedEventListeners = [],
+                    mapIter;
 
-                for (eventType in this.registeredEventListeners) {
-                    eventRegistration = this.registeredEventListeners[eventType];
-                    if (target.uuid in eventRegistration) {
-                        observedEventListeners.push(eventRegistration);
+                mapIter = _registeredCaptureEventListeners.keys();
+                while (eventType = mapIter.next().value) {
+                    eventRegistration = _registeredCaptureEventListeners.get(eventType);
+                    if (eventRegistration.has(target)) {
+                        observedEventListeners.push(eventType);
                     }
                 }
+
+                mapIter = _registeredBubbleEventListeners.keys();
+                while (eventType = mapIter.next().value) {
+                    eventRegistration = _registeredBubbleEventListenersget(eventType);
+                    if (eventRegistration.has(target)) {
+                        observedEventListeners.push(eventType);
+                    }
+                }
+
 
                 return observedEventListeners;
             }
@@ -1070,49 +959,70 @@ if (typeof window !== "undefined") { // client-side
          * @param {Event} useCapture - The event capture.
          * @returns returnResult
          */
-        registerEventListener: {
+         _registeredCaptureEventListeners: {
+           value:null
+        },
+        _registeredBubbleEventListeners: {
+          value:null
+       },
+         registerEventListener: {
+             enumerable: false,
+             value: function registerEventListener(target, eventType, listener, useCapture) {
+                 var result;
+                 result = this._registerEventListener(target, eventType, listener, useCapture ? this._registeredCaptureEventListeners : this._registeredBubbleEventListeners);
+                 return result;
+
+            }
+        },
+        _registerEventListener: {
             enumerable: false,
-            value: function registerEventListener(target, eventType, listener, useCapture) {
+            value: function _registerEventListener(target, eventType, listener, registeredEventListeners) {
 
                 // console.log("EventManager.registerEventListener", target, eventType, listener, useCapture)
 
-                var eventTypeRegistration = this.registeredEventListeners[eventType],
-                    targetRegistration,
+                var eventTypeRegistration = registeredEventListeners.get(eventType),
                     listenerRegistration,
                     phase,
                     isNewTarget = false,
-                    returnResult = false;
-
-                if (typeof target.uuid === "undefined") {
-                    throw new Error("EventManager cannot observe a target without a uuid: " + (target.outerHTML || target));
-                }
+                    returnResult = false,
+                    listeners;
 
                 if (!eventTypeRegistration) {
                     // First time this eventType has been requested
-                    eventTypeRegistration = this.registeredEventListeners[eventType] = {};
-                    (eventTypeRegistration[target.uuid] = _TargetRegistration.checkoutRegistration()).target = target;
-
-                    eventTypeRegistration[target.uuid].listeners[listener.uuid] = _TargetListenerRegistration.checkoutRegistration().initWithListener(listener, useCapture, !useCapture);
+                    registeredEventListeners.set(eventType, (eventTypeRegistration = new Map()));
+                    // listeners = [listener];
+                    // eventTypeRegistration.set(target,listeners);
+                    eventTypeRegistration.set(target,listener);
 
                     isNewTarget = true;
                     returnResult = true;
                 } else {
 
                     // Or, the event type was already observed; install this new listener (or at least any new parts)
-                    if (!(targetRegistration = eventTypeRegistration[target.uuid])) {
-                        (targetRegistration = (eventTypeRegistration[target.uuid] = _TargetRegistration.checkoutRegistration())).target = target;
+                    if (!eventTypeRegistration.has(target)) {
+                        // listeners = [];
+                        // eventTypeRegistration.set(target,listeners);
+                        eventTypeRegistration.set(target,listener);
+
                         isNewTarget = true;
                     }
+                    else {
+                      listeners = eventTypeRegistration.get(target);
+                      if(Array.isArray(listeners)) {
+                          listenerRegistration = (listeners.indexOf(listener) !== -1);
+                          if (listenerRegistration) {
+                              returnResult = true;
+                          } else {
+                              listeners.push(listener);
+                              returnResult = true;
+                          }
+                      }
+                      else {
+                          listeners = [listeners,listener];
+                          eventTypeRegistration.set(target,listeners);
+                          returnResult = true;
+                      }
 
-                    listenerRegistration = targetRegistration.listeners[listener.uuid];
-                    phase = useCapture ? "capture" : "bubble";
-
-                    if (listenerRegistration) {
-                        listenerRegistration[phase] = true;
-                        returnResult = true;
-                    } else {
-                        targetRegistration.listeners[listener.uuid] = _TargetListenerRegistration.checkoutRegistration().initWithListener(listener, useCapture, !useCapture)
-                        returnResult = true;
                     }
 
                 }
@@ -1135,18 +1045,24 @@ if (typeof window !== "undefined") { // client-side
          * @param {Event} listener - The event listener.
          * @param {Event} useCapture - The event capture.
          */
-        unregisterEventListener: {
+         unregisterEventListener: {
+             enumerable: false,
+             value: function unregisterEventListener(target, eventType, listener, useCapture) {
+                 //console.log("EventManager.unregisterEventListener", target, eventType, listener, useCapture);
+
+                 return useCapture
+                    ? this._unregisterEventListener(target, eventType, listener, this._registeredCaptureEventListeners, this._registeredBubbleEventListeners)
+                    : this._unregisterEventListener(target, eventType, listener, this._registeredBubbleEventListeners, this._registeredCaptureEventListeners);
+            }
+        },
+        _unregisterEventListener: {
             enumerable: false,
-            value: function unregisterEventListener (target, eventType, listener, useCapture) {
+            value: function _unregisterEventListener (target, eventType, listener, registeredEventListeners, otherPhaseRegisteredEventListeners) {
 
-                // console.log("EventManager.unregisterEventListener", target, eventType, listener, useCapture)
 
-                var eventTypeRegistration = this.registeredEventListeners[eventType],
-                    targetRegistration,
-                    listenerRegistration,
-                    phase,
-                    listenerUUID,
-                    installedListener;
+                var eventTypeRegistration = registeredEventListeners.get(eventType),
+                    listeners,
+                    map;
 
                 if (!eventTypeRegistration) {
                     // this eventType wasn't being observed at all
@@ -1154,62 +1070,60 @@ if (typeof window !== "undefined") { // client-side
                 }
 
                 // the event type was observed; see if the target was registered
-                targetRegistration = eventTypeRegistration[target.uuid];
-                if (!targetRegistration) {
+                listeners = eventTypeRegistration.get(target);
+                if (!listeners) {
                     return;
                 }
 
                 // the target was being observed for this eventType; see if the specified listener was registered
-                listenerRegistration = targetRegistration.listeners[listener.uuid];
-
-                if (!listenerRegistration) {
-
-                    for (listenerUUID in targetRegistration.listeners) {
-                        installedListener = targetRegistration.listeners[listenerUUID].listener;
-
-                        if (installedListener.originalListener && installedListener.originalListener.uuid === listener.uuid) {
-                            listenerRegistration = targetRegistration.listeners[listenerUUID];
-                            listener = installedListener;
-                            break;
-                        }
-                    }
-
-                    if (!listenerRegistration) {
+                if(listeners === listener) {
+                    eventTypeRegistration.set(target,null);
+                    this._unregisterTargetForEventTypeIfNeeded(target, eventType, listeners, registeredEventListeners, otherPhaseRegisteredEventListeners);
+                    return;
+                }
+                else if(Array.isArray(listeners)) {
+                    if (listeners.indexOf(listener) === -1) {
                         return;
                     }
-                }
-
-                phase = useCapture ? "capture" : "bubble";
-                // console.log("unregistering listener from phase:", phase)
-
-                listenerRegistration[phase] = false;
-
-                // Done unregistering the listener for the specified phase
-                // Now see if we need to remove any registrations as a result of that
-
-                if (!listenerRegistration.bubble && !listenerRegistration.capture) {
-                    // this listener isn't listening in any phase; remove it
-                    _TargetListenerRegistration.checkinRegistration(targetRegistration.listeners[listener.uuid]);
-                    delete targetRegistration.listeners[listener.uuid];
-
-                    if (Object.keys(targetRegistration.listeners).length === 0) {
-                        // If no listeners for this target given this event type; remove this target
-                        delete eventTypeRegistration[target.uuid];
-                        //Once we get here, listeners structure of 	targetRegistration is empty
-                        _TargetRegistration.checkinRegistration(targetRegistration);
-                        if (Object.keys(eventTypeRegistration).length === 0) {
-                            // If no targets for this eventType; stop observing this event
-                            delete this.registeredEventListeners[eventType];
-                            this._stopObservingTarget_forEventType_(target, eventType);
+                    if(this._currentDispatchedTargetListeners.has(listeners)) {
+                        map = this._currentDispatchedTargetListeners.get(listeners);
+                        if(!map) {
+                            this._currentDispatchedTargetListeners.set(listeners,(map = new Map()));
                         }
+                        map.set(listener,true);
+
+                    } else {
+                        this.spliceOne(listeners,listeners.indexOf(listener));
+                        // Done unregistering the listener for the specified phase
+                        // Now see if we need to remove any registrations as a result of that
+                        this._unregisterTargetForEventTypeIfNeeded(target, eventType, listeners, registeredEventListeners, otherPhaseRegisteredEventListeners);
 
                     }
-
                 }
+                else {
+                //There's only one listener and it's no this one.
+                    return;
+                }
+
                 // console.log("EventManager.unregisteredEventListener", this.registeredEventListeners)
             }
         },
+        _unregisterTargetForEventTypeIfNeeded: {
+            value: function(target, eventType, listeners, registeredEventListeners, otherPhaseRegisteredEventListeners) {
+                if(!Array.isArray(listeners) || listeners.length === 0) {
+                    var eventTypeRegistration = registeredEventListeners.get(eventType),
+                        otherPhaseEventTypeRegistration = otherPhaseRegisteredEventListeners.get(eventType);
 
+                    eventTypeRegistration.delete(target);
+
+                    if (eventTypeRegistration.size === 0 && (!otherPhaseEventTypeRegistration || (otherPhaseEventTypeRegistration && otherPhaseEventTypeRegistration.size === 0))) {
+                        // If no targets for this eventType; stop observing this event
+                        //delete registeredEventListeners[eventType];
+                        this._stopObservingTarget_forEventType_(target, eventType);
+                    }
+                }
+            }
+        },
         /**
          * Determines the actual target to observe given a target and an eventType.
          * This correctly decides whether to observe the element specified or
@@ -1260,7 +1174,7 @@ if (typeof window !== "undefined") { // client-side
         /**
          * @private
          */
-        _observedTarget_byEventType_: {value: {}},
+        _observedTarget_byEventType_: {value: null},
 
         // Individual Event Registration
 
@@ -1273,11 +1187,11 @@ if (typeof window !== "undefined") { // client-side
 
                 var listenerTarget;
 
-                if ((listenerTarget = this.actualDOMTargetForEventTypeOnTarget(eventType, target)) && (!this._observedTarget_byEventType_[eventType] || !this._observedTarget_byEventType_[eventType][listenerTarget.uuid])) {
+                if ((listenerTarget = this.actualDOMTargetForEventTypeOnTarget(eventType, target)) && (!this._observedTarget_byEventType_[eventType] || !this._observedTarget_byEventType_[eventType].has(listenerTarget))) {
                     if (!this._observedTarget_byEventType_[eventType]) {
-                        this._observedTarget_byEventType_[eventType] = {};
+                        this._observedTarget_byEventType_[eventType] = new Map();
                     }
-                    this._observedTarget_byEventType_[eventType][listenerTarget.uuid] = this;
+                    this._observedTarget_byEventType_[eventType].set(listenerTarget,this);
 
                     listenerTarget.nativeAddEventListener(eventType, this, true);
                 }
@@ -1296,7 +1210,7 @@ if (typeof window !== "undefined") { // client-side
 
                 listenerTarget = this.actualDOMTargetForEventTypeOnTarget(eventType, target);
                 if (listenerTarget) {
-                    delete this._observedTarget_byEventType_[eventType][listenerTarget.uuid];
+                    this._observedTarget_byEventType_[eventType].delete(listenerTarget);
                     listenerTarget.nativeRemoveEventListener(eventType, this, true);
                 }
                 // console.log("stopped listening: ", eventType, window.uuid)
@@ -1325,40 +1239,45 @@ if (typeof window !== "undefined") { // client-side
                 // the same eventType of an activation event
                 if (!this._activationHandler) {
                     var eventManager = this;
-                    this._activationHandler = function (evt) {
-                        var eventType = evt.type,
-                            touchCount;
+                    this._activationHandler = function _activationHandler(evt) {
+                        var touchCount;
 
                         // Prepare any components associated with elements that may receive this event
                         // They need to registered there listeners before the next step, which is to find the components that
                         // observing for this type of event
-                        if ("focus" === eventType || "mousedown" === eventType || "touchstart" === eventType) {
-                            if (evt.changedTouches) {
-                                touchCount = evt.changedTouches.length;
-                                for (var i = 0; i < touchCount; i++) {
-                                    eventManager._prepareComponentsForActivation(evt.changedTouches[i].target);
-                                }
-                            } else {
-                                eventManager._prepareComponentsForActivation(evt.target);
+                        if (evt.changedTouches) {
+                            touchCount = evt.changedTouches.length;
+                            for (var i = 0; i < touchCount; i++) {
+                                eventManager._prepareComponentsForActivation(evt.changedTouches[i].target);
                             }
+                        } else {
+                            eventManager._prepareComponentsForActivation(evt.target);
                         }
-
                     };
                 }
 
                 // The EventManager needs to handle "gateway/pointer/activation events" that we
                 // haven't let children listen for yet
                 // when the EM handles them eventually it will need to allow
-                // all components from the event target to the window to prepareForPointerEvents
+                // all components from the event target to the window to prepareForActivationEvents
                 // before finding event handlers that were registered for these events
-                if (aWindow.Touch) {
-                    // TODO on iOS the touch doesn't capture up at the window, just the document; interesting
-                    aWindow.document.nativeAddEventListener("touchstart", this._activationHandler, true);
+                if (window.PointerEvent) {
+                    aWindow.nativeAddEventListener("pointerdown", this._activationHandler, true);
+                    aWindow.nativeAddEventListener("pointerenter", this._activationHandler, true);
+
+                } else if (window.MSPointerEvent && window.navigator.msPointerEnabled) {
+                    aWindow.nativeAddEventListener("MSPointerDown", this._activationHandler, true);
+                    // IE10 has no support for pointerenter or pointerleave events.
+                    aWindow.document.nativeAddEventListener("mouseenter", this._activationHandler, true);
+
                 } else {
-                    aWindow.document.nativeAddEventListener("mousedown", this._activationHandler, true);
-                    //TODO also should accommodate mouseenter/mouseover possibly
+                    aWindow.nativeAddEventListener("touchstart", this._activationHandler, true);
+                    aWindow.nativeAddEventListener("mousedown", this._activationHandler, true);
+                    // mouseenter events are not dispatched from window under Chrome and Safari.
+                    aWindow.document.nativeAddEventListener("mouseenter", this._activationHandler, true);
                 }
-                aWindow.document.nativeAddEventListener("focus", this._activationHandler, true);
+
+                aWindow.nativeAddEventListener("focus", this._activationHandler, true);
 
                 if (this.application) {
 
@@ -1382,7 +1301,8 @@ if (typeof window !== "undefined") { // client-side
 
                 var applicationLevelEvents = this.registeredEventListenersOnTarget_(this.application),
                     windowLevelEvents = this.registeredEventListenersOnTarget_(aWindow),
-                    eventType;
+                    eventType,
+                    index;
 
                 for (eventType in applicationLevelEvents) {
                     this._stopObservingTarget_forEventType_(aWindow, eventType);
@@ -1391,34 +1311,50 @@ if (typeof window !== "undefined") { // client-side
                 for (eventType in windowLevelEvents) {
                     this._stopObservingTarget_forEventType_(aWindow, eventType);
                 }
+
+                if ((index = this._listeningWindowOnTouchCancel.indexOf(aWindow)) > -1) {
+                    this.spliceOne(this._listeningWindowOnTouchCancel,index);
+                    // the listener on 'touchCancel' has already been removed by the previous step.
+                }
             }
         },
 
         /**
          * @function
          */
+        _resetRegisteredEventListeners: {
+            enumerable: false,
+            value: function (registeredEventListeners) {
+                var eventType,
+                    eventRegistration,
+                    self = this;
+
+                for (eventType in registeredEventListeners) {
+                    eventRegistration = registeredEventListeners.get(eventType);
+
+                    if(eventRegistration) {
+                        eventRegistration.forEach(function(listeners, target, map) {
+                            self._stopObservingTarget_forEventType_(target, eventType);
+                        });
+                    }
+                }
+            }
+        },
+
         reset: {
             enumerable: false,
             value: function () {
-                var eventType,
-                    eventRegistration,
-                    targetUUID,
-                    targetRegistration;
-
-                for (eventType in this.registeredEventListeners) {
-                    eventRegistration = this.registeredEventListeners[eventType];
-                    for (targetUUID in eventRegistration.targets) {
-                        targetRegistration = eventRegistration.targets[targetUUID];
-                        this._stopObservingTarget_forEventType_(targetRegistration.target, eventType);
-                    }
-                }
-
-                this.registeredEventListeners = {};
+                this._resetRegisteredEventListeners(this._registeredCaptureEventListeners);
+                this._resetRegisteredEventListeners(this._registeredBubbleEventListeners);
 
                 // TODO for each component claiming a pointer, force them to surrender the pointer?
-                this._claimedPointers = {};
+                this._claimedPointers = new Map();
+                this._registeredCaptureEventListeners = new Map();
+                this._registeredBubbleEventListeners = new Map();
+
             }
         },
+
 
         /**
          * @function
@@ -1435,12 +1371,18 @@ if (typeof window !== "undefined") { // client-side
          */
         methodNameForBubblePhaseOfEventType: {
             enumerable: false,
-            value: (function (_methodNameForBubblePhaseByEventType_) {
-                return function (eventType, identifier) {
-                    var eventTypeKey = identifier ? eventType + "+" + identifier : eventType;
-                    return _methodNameForBubblePhaseByEventType_[eventTypeKey] || (_methodNameForBubblePhaseByEventType_[eventTypeKey] = ("handle" + (identifier ? identifier.toCapitalized() : "") + eventType.toCapitalized()));
+            value: (function (_methodNameByEventType_,_methodNameByEventTypeIdentifier_) {
+                return function methodNameForBubblePhaseOfEventType(eventType, identifier, capitalizedEventType, capitalizedIdentifier) {
+                  var eventTypeBucket;
+                  if(identifier) {
+                    eventTypeBucket = _methodNameByEventTypeIdentifier_[eventType] || (_methodNameByEventTypeIdentifier_[eventType] = Object.create(null));
+                    return eventTypeBucket[identifier] || (eventTypeBucket[identifier] = ("handle" + (capitalizedIdentifier || identifier.toCapitalized()) + (capitalizedEventType || eventType.toCapitalized())));
+                  }
+                  else {
+                    return _methodNameByEventType_[eventType] || (_methodNameByEventType_[eventType] = ("handle" + (capitalizedEventType || eventType.toCapitalized())));
+                  }
                 };
-            })({})
+            })(Object.create(null), Object.create(null))
         },
 
         /**
@@ -1452,12 +1394,18 @@ if (typeof window !== "undefined") { // client-side
 
         methodNameForCapturePhaseOfEventType: {
             enumerable: false,
-            value: (function (_methodNameForCapturePhaseByEventType_) {
-                return function (eventType, identifier) {
-                    var eventTypeKey = identifier ? eventType + "+" + identifier : eventType;
-                    return _methodNameForCapturePhaseByEventType_[eventTypeKey] || (_methodNameForCapturePhaseByEventType_[eventTypeKey] = "capture" + (identifier ? identifier.toCapitalized() : "") + eventType.toCapitalized());
+            value: (function (_methodNameByEventType_,_methodNameByEventTypeIdentifier_) {
+                return function methodNameForCapturePhaseOfEventType(eventType, identifier, capitalizedEventType, capitalizedIdentifier) {
+                  var eventTypeBucket;
+                  if(identifier) {
+                    eventTypeBucket = _methodNameByEventTypeIdentifier_[eventType] || (_methodNameByEventTypeIdentifier_[eventType] = Object.create(null));
+                    return eventTypeBucket[identifier] || (eventTypeBucket[identifier] = ("capture" + (capitalizedIdentifier || identifier.toCapitalized()) + (capitalizedEventType || eventType.toCapitalized())));
+                  }
+                  else {
+                    return _methodNameByEventType_[eventType] || (_methodNameByEventType_[eventType] = ("capture" + (capitalizedEventType || eventType.toCapitalized())));
+                  }
                 };
-            })({})
+              })(Object.create(null), Object.create(null))
         },
 
         // Claimed pointer information
@@ -1467,8 +1415,7 @@ if (typeof window !== "undefined") { // client-side
          */
         _claimedPointers: {
             enumerable: false,
-            distinct: true,
-            value: {}
+            value: null
         },
 
         /**
@@ -1480,7 +1427,7 @@ if (typeof window !== "undefined") { // client-side
          */
         componentClaimingPointer: {
             value: function (pointer) {
-                return this._claimedPointers[pointer];
+                return this._claimedPointers.get(pointer);
             }
         },
 
@@ -1501,7 +1448,7 @@ if (typeof window !== "undefined") { // client-side
                     throw "Must specify a valid component to see if it claims the specified pointer, '" + component + "' is not valid.";
                 }
 
-                return this._claimedPointers[pointer] === component;
+                return this._claimedPointers.get(pointer) === component;
             }
         },
 
@@ -1536,7 +1483,7 @@ if (typeof window !== "undefined") { // client-side
                     throw "Must specify a valid component to claim a pointer, '" + component + "' is not valid.";
                 }
 
-                var claimant = this._claimedPointers[pointer];
+                var claimant = this._claimedPointers.get(pointer);
 
                 if (claimant === component) {
                     // Already claimed this pointer ourselves
@@ -1544,13 +1491,13 @@ if (typeof window !== "undefined") { // client-side
 
                 } else if (!claimant) {
                     //Nobody has claimed it; go for it
-                    this._claimedPointers[pointer] = component;
+                    this._claimedPointers.set(pointer,component);
                     return true;
 
                 } else {
                     //Somebody else has claimed it; ask them to surrender
                     if (claimant.surrenderPointer(pointer, component)) {
-                        this._claimedPointers[pointer] = component;
+                        this._claimedPointers.set(pointer,component);
                         return true;
                     } else {
                         return false;
@@ -1571,8 +1518,8 @@ if (typeof window !== "undefined") { // client-side
          */
         forfeitPointer: {
             value: function (pointer, component) {
-                if (component === this._claimedPointers[pointer]) {
-                    delete this._claimedPointers[pointer];
+                if (component === this._claimedPointers.get(pointer)) {
+                    this._claimedPointers.delete(pointer);
                 } else {
                     throw "Not allowed to forfeit pointer '" + pointer + "' claimed by another component";
                 }
@@ -1589,17 +1536,17 @@ if (typeof window !== "undefined") { // client-side
         forfeitAllPointers: {
             value: function (component) {
 
-                var pointerKey,
+                var mapIter  = this._claimedPointers.keys(),
+                    pointerKey,
                     claimant;
 
-                for (pointerKey in this._claimedPointers) {
-                    claimant = this._claimedPointers[pointerKey];
+                while (pointerKey = mapIter.next().value) {
+                    claimant = this._claimedPointers.get(pointerKey);
                     if (component === claimant) {
                         // NOTE basically doing the work ofr freePointerFromComponent
-                        delete this._claimedPointers[pointerKey];
+                        this._claimedPointers.delete(pointerKey);
                     }
                 }
-
             }
         },
 
@@ -1626,12 +1573,17 @@ if (typeof window !== "undefined") { // client-side
                 if (value === true) {
                     if (!this._isStoringPointerEvents) {
                         this._isStoringPointerEvents = true;
-                        if (window.Touch) {
+
+                        if (window.PointerEvent || (window.MSPointerEvent && window.navigator.msPointerEnabled)){
+                            Object.defineProperty(MutableEvent.prototype, "velocity", {
+                                get: function () {
+                                    return defaultEventManager.pointerMotion(this.pointerId).velocity;
+                                }
+                            });
+                        } else if (window.Touch){
                             Object.defineProperty(Touch.prototype, "velocity", {
                                 get: function () {
                                     return defaultEventManager.pointerMotion(this.identifier).velocity;
-                                },
-                                set: function () {
                                 }
                             });
                         }
@@ -1681,6 +1633,7 @@ if (typeof window !== "undefined") { // client-side
             enumerable: false,
             value: {
                 memory: {},
+                velocity: {},
                 add: function (identifier, data) {
                     if (!this.memory[identifier]) {
                         this.memory[identifier] = {
@@ -1709,93 +1662,124 @@ if (typeof window !== "undefined") { // client-side
                 isStored: function (identifier) {
                     return (this.memory[identifier] && (this.memory[identifier].size > 0));
                 },
-                storeEvent: function (event) {
-                    var i;
-                    switch (event.type) {
-                        case "mousedown":
-                            defaultEventManager._isMouseDragging = true;
-                        // roll into mousemove. break omitted intentionally.
-                        case "mousemove":
-                            if (defaultEventManager._isStoringMouseEventsWhileDraggingOnly) {
-                                if (defaultEventManager._isMouseDragging) {
-                                    this.add("mouse", {
-                                        clientX: event.clientX,
-                                        clientY: event.clientY,
-                                        timeStamp: event.timeStamp
-                                    });
-                                    Object.defineProperty(event, "velocity", {
-                                        get: function () {
-                                            return defaultEventManager.pointerMotion("mouse").velocity;
-                                        },
-                                        set: function () {
-                                        }
-                                    });
-                                }
-                            } else {
-                                this.add("mouse", {
-                                    clientX: event.clientX,
-                                    clientY: event.clientY,
-                                    timeStamp: event.timeStamp
-                                });
-                                Object.defineProperty(event, "velocity", {
-                                    get: function () {
-                                        return defaultEventManager.pointerMotion("mouse").velocity;
-                                    },
-                                    set: function () {
+                storeEvent: function (mutableEvent) {
+                    var isBrowserSupportPointerEvents = currentEnvironment.isBrowserSupportPointerEvents,
+                        event = mutableEvent instanceof MutableEvent ? mutableEvent._event : mutableEvent,
+                        pointerType = event.pointerType;
+
+                    if ((isBrowserSupportPointerEvents &&
+                        (pointerType === "mouse" || (window.MSPointerEvent && pointerType === window.MSPointerEvent.MSPOINTER_TYPE_MOUSE))) ||
+                        (!isBrowserSupportPointerEvents && event instanceof MouseEvent)) {
+
+                        switch (mutableEvent.type) {
+                            case "pointerdown":
+                            case "MSPointerDown":
+                            case "mousedown":
+                                defaultEventManager._isMouseDragging = true;
+                            // roll into mousemove. break omitted intentionally.
+                            case "pointermove":
+                            case "MSPointerMove":
+                            case "mousemove":
+                                if (defaultEventManager._isStoringMouseEventsWhileDraggingOnly) {
+                                    if (defaultEventManager._isMouseDragging) {
+                                        this._storeMouse(mutableEvent);
                                     }
-                                });
-                            }
-                            break;
-                        case "mouseup":
-                            this.add("mouse", {
-                                clientX: event.clientX,
-                                clientY: event.clientY,
-                                timeStamp: event.timeStamp
-                            });
-                            Object.defineProperty(event, "velocity", {
-                                get: function () {
-                                    return defaultEventManager.pointerMotion("mouse").velocity;
-                                },
-                                set: function () {
+                                } else {
+                                    this._storeMouse(mutableEvent);
                                 }
-                            });
-                            break;
-                        case "touchstart":
-                        case "touchmove":
-                            for (i = 0; i < event.touches.length; i++) {
-                                this.add(event.touches[i].identifier, {
-                                    clientX: event.touches[i].clientX,
-                                    clientY: event.touches[i].clientY,
-                                    timeStamp: event.timeStamp
-                                });
-                            }
-                            break;
-                        case "touchend":
-                            for (i = 0; i < event.changedTouches.length; i++) {
-                                this.add(event.changedTouches[i].identifier, {
-                                    clientX: event.changedTouches[i].clientX,
-                                    clientY: event.changedTouches[i].clientY,
-                                    timeStamp: event.timeStamp
-                                });
-                            }
-                            break;
+                                break;
+
+                            case "pointerup":
+                            case "MSPointerUp":
+                            case "mouseup":
+                                this._storeMouse(mutableEvent);
+                                break;
+                        }
+                    } else if ((isBrowserSupportPointerEvents &&
+                        (pointerType === "touch" || (window.MSPointerEvent && pointerType === window.MSPointerEvent.MSPOINTER_TYPE_TOUCH))) ||
+                        (window.TouchEvent !== void 0 && !isBrowserSupportPointerEvents && event instanceof TouchEvent)) {
+
+                        switch (event.type) {
+                            case "pointerdown":
+                            case "MSPointerDown":
+                            case "pointermove":
+                            case "MSPointerMove":
+                            case "pointerup":
+                            case "MSPointerUp":
+                                this._storeTouch(event.pointerId, event.clientX, event.clientY, event.timeStamp);
+                                break;
+
+                            case "touchstart":
+                            case "touchmove":
+                                this._storeTouches(event.touches, event.timeStamp);
+                                break;
+
+                            case "touchend":
+                                this._storeTouches(event.changedTouches, event.timeStamp);
+                                break;
+                        }
                     }
                 },
-                removeEvent: function (event) {
-                    var i;
-                    switch (event.type) {
-                        case "mouseup":
+
+                removeEvent: function (mutableEvent) {
+                    var isBrowserSupportPointerEvents = currentEnvironment.isBrowserSupportPointerEvents,
+                        event = mutableEvent instanceof MutableEvent ? mutableEvent._event : mutableEvent;
+
+                    if ((isBrowserSupportPointerEvents &&
+                        (mutableEvent.pointerType === "mouse" || (window.MSPointerEvent && mutableEvent.pointerType === window.MSPointerEvent.MSPOINTER_TYPE_MOUSE))) ||
+                        (!isBrowserSupportPointerEvents && event instanceof MouseEvent)) {
+
+                        if (mutableEvent.type === "mouseup" || mutableEvent.type === "pointerup" || mutableEvent.type === "MSPointerUp") {
                             defaultEventManager._isMouseDragging = false;
+
                             if (defaultEventManager._isStoringMouseEventsWhileDraggingOnly) {
                                 this.clear("mouse");
                             }
-                            break;
-                        case "touchend":
-                            for (i = 0; i < event.changedTouches.length; i++) {
-                                this.remove(event.changedTouches[i].identifier);
+                        }
+                    } else if ((isBrowserSupportPointerEvents &&
+                        (mutableEvent.pointerType === "touch" || (window.MSPointerEvent && mutableEvent.pointerType === window.MSPointerEvent.MSPOINTER_TYPE_TOUCH))) ||
+                        (window.TouchEvent !== void 0 && !isBrowserSupportPointerEvents && event instanceof TouchEvent)) {
+
+                        if (mutableEvent.type === "touchend" || mutableEvent.type === "pointerup" || mutableEvent.type === "MSPointerUp") {
+                            if (mutableEvent.changedTouches) {
+                                for (var i = 0, changedTouches = mutableEvent.changedTouches, iChangedTouch; (iChangedTouch = changedTouches[i]); i++) {
+                                    this.remove(iChangedTouch.identifier);
+                                }
+                            } else {
+                                this.remove(mutableEvent.pointerId);
                             }
-                            break;
+                        }
                     }
+                },
+
+                _storeMouse: function (event) {
+                    this.add("mouse", {
+                        clientX: event.clientX,
+                        clientY: event.clientY,
+                        timeStamp: event.timeStamp
+                    });
+
+                    Object.defineProperty(event, "velocity", {
+                        get: function () {
+                            return defaultEventManager.pointerMotion("mouse").velocity;
+                        }
+                    });
+                },
+
+                _storeTouches: function (touches, timeStamp) {
+                    var touch;
+
+                    for (var i = 0; (touch = touches[i]); i++) {
+                        this._storeTouch(touch.identifier, touch.clientX, touch.clientY, timeStamp);
+                    }
+                },
+
+                _storeTouch: function (identifier, clientX, clientY, timeStamp) {
+                    this.add(identifier, {
+                        clientX: clientX,
+                        clientY: clientY,
+                        timeStamp: timeStamp
+                    });
                 }
             }
         },
@@ -1819,7 +1803,6 @@ if (typeof window !== "undefined") { // client-side
                         y: [],
                         time: []
                     };
-
                 memory = defaultEventManager._pointerStorage.getMemory(identifier);
                 memoryLength = memory.data.length;
                 evt = memory.data[((memory.pos - 1) + memoryLength) % memoryLength];
@@ -1859,30 +1842,7 @@ if (typeof window !== "undefined") { // client-side
                     f2, c2, d2, b2, a2, s2, e2,
                     f3, c3, d3, b3, a3, s3, e3;
                 do {
-                    f0 = 0;
-                    c0 = 0;
-                    d0 = 0;
-                    b0 = 0;
-                    a0 = 0;
-                    s0 = 0;
-                    f1 = 0;
-                    c1 = 0;
-                    d1 = 0;
-                    b1 = 0;
-                    a1 = 0;
-                    s1 = 0;
-                    f2 = 0;
-                    c2 = 0;
-                    d2 = 0;
-                    b2 = 0;
-                    a2 = 0;
-                    s2 = 0;
-                    f3 = 0;
-                    c3 = 0;
-                    d3 = 0;
-                    b3 = 0;
-                    a3 = 0;
-                    s3 = 0;
+                    f0 = c0 = d0 = b0 = a0 = s0 = f1 = c1 = d1 = b1 = a1 = s1 = f2 = c2 = d2 = b2 = a2 = s2 = f3 = c3 = d3 = b3 = a3 = s3 = 0;
                     for (i = 0; i < dl; i++) {
                         e = data[i];
                         t = e.t;
@@ -2039,83 +1999,7 @@ if (typeof window !== "undefined") { // client-side
         pointerMotion: {
             value: function (identifier) {
                 if (defaultEventManager._pointerStorage.isStored(identifier)) {
-                    var velocity = {};
-                    Object.defineProperties(velocity, {
-                        _data: {
-                            enumerable: false,
-                            writable: true,
-                            value: null
-                        },
-                        _x: {
-                            enumerable: false,
-                            writable: true,
-                            value: null
-                        },
-                        _y: {
-                            enumerable: false,
-                            writable: true,
-                            value: null
-                        },
-                        _speed: {
-                            enumerable: false,
-                            writable: true,
-                            value: null
-                        },
-                        _angle: {
-                            enumerable: false,
-                            writable: true,
-                            value: null
-                        },
-                        x: {
-                            get: function () {
-                                if (this._x === null) {
-                                    if (this._data === null) {
-                                        this._data = defaultEventManager._getPointerVelocityData(identifier);
-                                    }
-                                    this._x = defaultEventManager._calculatePointerVelocity(this._data.time, this._data.x);
-                                }
-                                return this._x;
-                            },
-                            set: function () {
-                            }
-                        },
-                        y: {
-                            get: function () {
-                                if (this._y === null) {
-                                    if (this._data === null) {
-                                        this._data = defaultEventManager._getPointerVelocityData(identifier);
-                                    }
-                                    this._y = defaultEventManager._calculatePointerVelocity(this._data.time, this._data.y);
-                                }
-                                return this._y;
-                            },
-                            set: function () {
-                            }
-                        },
-                        speed: {
-                            get: function () {
-                                if (this._speed === null) {
-                                    this._speed = Math.sqrt(this.x * this.x + this.y * this.y);
-                                }
-                                return this._speed;
-                            },
-                            set: function () {
-                            }
-                        },
-                        angle: {
-                            get: function () {
-                                if (this._angle === null) {
-                                    this._angle = Math.atan2(this.y, this.x);
-                                }
-                                return this._angle;
-                            },
-                            set: function () {
-                            }
-                        }
-                    });
-                    return {
-                        velocity: velocity
-                    };
+                    return {velocity: (new _PointerVelocity()).initWithIdentifier(identifier)};
                 } else {
                     return undefined;
                 }
@@ -2149,7 +2033,344 @@ if (typeof window !== "undefined") { // client-side
             })
         },
 
+        _trackingTouchStartList: {
+            value: null
+        },
+        _trackingTouchEndList: {
+            value: null
+        },
+
+        _trackingTouchTimeoutIDs: {
+            value: null
+        },
+
+        _wouldTouchTriggerSimulatedEvent: {
+            value: function (event) {
+
+                switch (event.type) {
+                    case "touchstart":
+                    case "touchend":
+                        return true;
+                    default:
+                        return false;
+                }
+
+            }
+        },
+
+        _couldEventBeSimulated: {
+            value: function (event) {
+
+                switch (event.type) {
+                    case "mousedown":
+                    case "mouseup":
+                    case "click":
+                        return true;
+                    default:
+                        return false;
+                }
+
+            }
+        },
+
+        _listeningWindowOnTouchCancel: {
+            value: []
+        },
+
+        _findWindowFromEvent: {
+            value: function (event) {
+                var target = event.target,
+                    aWindow;
+
+                if (target) {
+                    aWindow = target instanceof Window ? target : target.defaultView instanceof Window ?
+                        target.defaultView : target.ownerDocument && target.ownerDocument.defaultView ?
+                        target.ownerDocument.defaultView : null;
+                }
+
+                return aWindow;
+            }
+        },
+
+        _isWindowListeningOnTouchCancel: {
+            value: function (aWindow) {
+                return this._registeredWindows.indexOf(aWindow) > -1 && this._listeningWindowOnTouchCancel.indexOf(aWindow) > -1;
+            }
+        },
+
+        _listenToTouchCancelIfNeeded: {
+            value: function (event) {
+                var aWindow = this._findWindowFromEvent(event);
+
+                if (aWindow && !this._isWindowListeningOnTouchCancel(aWindow)) {
+                    var self = this;
+
+                    aWindow.addEventListener("touchcancel", function touchcancelListener(event) {
+                        var changedTouches = event.changedTouches,
+                            touchesStartList = self._trackingTouchStartList,
+                            identifier;
+
+                        for (var i = 0, length = changedTouches.length; i < length; i++) {
+                            identifier = changedTouches[i].identifier;
+
+                            if (touchesStartList.has(identifier)) {
+                                touchesStartList.delete(identifier);
+                            }
+                        }
+                    }, true);
+
+                    this._listeningWindowOnTouchCancel.push(aWindow);
+                }
+            }
+        },
+
+        _blocksEmulatedEvents: {
+            value: true
+        },
+        blocksEmulatedEvents: {
+            get: function() { return this._blocksEmulatedEvents; },
+            set: function(value) {
+                if(value !== this._blocksEmulatedEvents) {
+                    this._blocksEmulatedEvents = value;
+                    this._evaluateShouldDispatchEventCondition();
+                }
+            }
+        },
+        _shouldDispatchEventCondition: {
+            value: undefined
+        },
+
+        _evaluateShouldDispatchEventCondition: {
+            value: function() {
+                this._shouldDispatchEventCondition = (this.blocksEmulatedEvents && !window.PointerEvent &&
+                !(window.MSPointerEvent && window.navigator.msPointerEnabled));
+            }
+        },
+
+
+        /**
+         * @function
+         * @param {Event} event
+         * @description Decides if an event can be dispatched by the EventManager within a montage app.
+         * Filter emulated mouse events (mousedown, mouseup, click) from touch events.
+         *
+         * @private
+         */
+        _shouldDispatchEvent: {
+            value: function (event) {
+                if (this._shouldDispatchEventCondition) {
+                    /**
+                     * Under IOS emulated mouse events have a timestamp set to 0. (Just WKWebView not UIWebView)
+                     * Plus, this property can't be used for Firefox.
+                     * Firefox has an open bug since 2004: the property timeStamp is not populated correctly.
+                     * -> https://bugzilla.mozilla.org/show_bug.cgi?id=238041
+                     */
+                    if (this.environment.isIOSDevice && this.environment.isWKWebView) {
+                        return !(event.timeStamp === 0);
+                    }
+
+                    /**
+                     * No needs do dispatch mouse events on android devices.
+                     */
+                    if (this.environment.isAndroidDevice && this._couldEventBeSimulated(event)) {
+                        return false;
+                    }
+
+                    // Checks if the event may trigger simulated events.
+                    if (this._wouldTouchTriggerSimulatedEvent(event)) {
+                        var changedTouches = event.changedTouches;
+
+                        // Needs to clean the tracking touches "start" when a touch event is canceled.
+                        this._listenToTouchCancelIfNeeded(event);
+
+                        for (var i = 0, length = changedTouches.length; i < length; i++) {
+                            this._trackTouch(event, changedTouches[i]);
+                        }
+
+                    } else if (this._couldEventBeSimulated(event)) { // Determines if mouse events are simulated.
+                        return !this._isEmulatedEvent(event);
+                    }  // else -> Dispatches all the others.
+                }
+
+                return true;
+            }
+        },
+
+        _trackTouch: {
+            value: function (touchEvent, touch) {
+                var timeoutIDs = this._trackingTouchTimeoutIDs,
+                    trackingTouchStartList = this._trackingTouchStartList,
+                    trackingTouchEndList = this._trackingTouchEndList,
+                    touchIdentifier = touch.identifier;
+
+                touch.timeStamp = touchEvent.timeStamp;
+
+                if (touchEvent.type === "touchstart") {
+                    /**
+                     * Touch identifiers are not unique for Firefox or Chrome (they are re-used).
+                     * So, we need to clear the timeout that was supposed to clean this tracking touch.
+                     */
+                    var timeoutID = timeoutIDs.get(touchIdentifier);
+
+                    if (timeoutID) {
+                        clearTimeout(timeoutID);
+                        timeoutIDs.delete(touchIdentifier);
+                    }
+
+                    trackingTouchStartList.set(touchIdentifier,touch);
+
+                } else { // touchend
+                    timeoutIDs.set(touchIdentifier, setTimeout(function () {
+                        trackingTouchEndList.delete(touchIdentifier);
+                        delete timeoutIDs[touchIdentifier];
+                    }, 400));
+                    /**
+                     * 400ms -> need a higher timeout than the click delay for UIWebViews.
+                     * Probably related to the fact Apple pauses JavaScript execution during scrolls on UIWebViews.
+                     * http://developer.telerik.com/featured/scroll-event-change-ios-8-big-deal/
+                     */
+
+                    trackingTouchStartList.delete(touchIdentifier);
+                    trackingTouchEndList.set(touchIdentifier,touch);
+                }
+                // console.groupTimeEnd("_trackTouch");
+
+            }
+        },
+
+        /**
+         * @function
+         * @param {Event} event
+         * @description Decides if an event is an emualted mouse event.
+         * Checks if a target has already been "activated" by a touch.
+         *
+         * @private
+         */
+        _isEmulatedEvent: {
+            value: function (event) {
+                /**
+                 * Can't use the position, indeed the emulated mouse events are not at the same position
+                 * than the touch events than triggered them. Doesn't work with a radius as well.
+                 * (using a radius can make it fail with wide fast movements -> FF)
+                 *
+                 * Needs to check both maps for devices with multiples pointers
+                 * (touchstart + mousedown -> mouseup -> click) or (touchstart + delay ≈ 600ms -> mousedown)
+                 */
+                var response = this._findEmulatedEventIdentifierWithEventAndTrackingTouchList(event, this._trackingTouchStartList) > -1;
+
+                if (!response) {
+                    var trackingTouchList = this._trackingTouchEndList,
+                        identifier = this._findEmulatedEventIdentifierWithEventAndTrackingTouchList(event, trackingTouchList);
+
+                    // Faster "awake", can be useful for devices with multiple pointers. (simultaneous click/touch)
+                    if ((response = identifier > -1) && event.type === "click") {
+                        var timeoutIDs = this._trackingTouchTimeoutIDs,
+                            timeoutID = timeoutIDs.get(identifier);
+
+                        if (timeoutID) {
+                            clearTimeout(timeoutID);
+
+                            trackingTouchList.delete(identifier);
+                            timeoutIDs.delete(identifier);
+                        }
+                    }
+                }
+
+                return response;
+            }
+        },
+
+        _emulatedEventTimestampThreshold: {
+            value: 20 //ms
+        },
+
+        _emulatedEventRadiusThreshold: {
+            value: 20 //px
+        },
+
+        /**
+         * @function
+         * @private
+         *
+         */
+        _findEmulatedEventIdentifierWithEventAndTrackingTouchList: {
+            value: function (mouseEvent, trackingTouchList) {
+                var mouseTarget = mouseEvent.target,
+                    identifier = -1,
+                    touch,
+                    mapIter;
+
+                mapIter = trackingTouchList.keys();
+                while (identifier = mapIter.next().value) {
+                    touch = trackingTouchList.get(identifier);
+
+                    if (touch.target === mouseTarget ||
+                        this._couldEmulatedEventHasWrongTarget(
+                            touch,
+                            mouseEvent,
+                            this._emulatedEventRadiusThreshold,
+                            this._emulatedEventTimestampThreshold
+                        )) break;
+                }
+
+                return identifier;
+            }
+        },
+
+        /**
+         * @function
+         * @private
+         * @description Check if a mouse event can not be a simulated event even if the target is different.
+         * Indeed, Touch Events and simulated Mouse Events can have a different target and not the same position on Chrome.
+         *
+         */
+        _couldEmulatedEventHasWrongTarget: {
+            value: function (touch, mouseEvent, radiusThreshold, timestampThreshold) {
+
+                if (/*dTimestamp*/(mouseEvent.timeStamp - touch.timeStamp) <= timestampThreshold) {
+                    var dX = touch.clientX - mouseEvent.clientX,
+                        dY = touch.clientY - mouseEvent.clientY;
+
+                    return dX * dX + dY * dY > radiusThreshold * radiusThreshold;
+                }
+
+                return false;
+            }
+        },
+
         // Event Handling
+        /**
+         * @property
+         * @description the pointer to the current candidate event listeners.
+         *
+         * @private
+         */
+        _currentDispatchedTargetListeners: {
+            value:null
+        },
+        /**
+         * @function
+         * @description the pointer to the current candidate event listeners.
+         *
+         * @private
+         */
+        _processCurrentDispatchedTargetListenersToRemove: {
+            value: function(target, eventType, useCapture, listeners) {
+                var currentDispatchedTargetListenersToRemove = this._currentDispatchedTargetListeners.get(listeners)
+                    ,registeredEventListeners
+                    ,otherPhaseRegisteredEventListeners
+                    ,i
+                    ,countI
+                    ,iListener;
+
+                if(currentDispatchedTargetListenersToRemove && currentDispatchedTargetListenersToRemove.size > 0) {
+                    listeners.removeObjects(currentDispatchedTargetListenersToRemove);
+                    registeredEventListeners = useCapture ? this._registeredCaptureEventListeners : this._registeredBubbleEventListeners
+                    otherPhaseRegisteredEventListeners = useCapture ? this._registeredBubbleEventListeners : this._registeredCaptureEventListeners
+                    this._unregisterTargetForEventTypeIfNeeded(target, eventType, listeners, registeredEventListeners, otherPhaseRegisteredEventListeners);
+                }
+            }
+        },
 
         /**
          @function
@@ -2158,6 +2379,9 @@ if (typeof window !== "undefined") { // client-side
         handleEvent: {
             enumerable: false,
             value: function (event) {
+                if (!this._shouldDispatchEvent(event)) {
+                    return void 0;
+                }
 
                 if (this.monitorDOMModificationInEventHandling) {
                     document.body.addEventListener("DOMSubtreeModified", this.domModificationEventHandler, true);
@@ -2167,24 +2391,28 @@ if (typeof window !== "undefined") { // client-side
 
                 var loadedWindow,
                     i,
+                    j,
                     iTarget,
                     listenerEntries,
-                    j,
-                    jListenerEntry,
-                    listenerEntryKeys,
-                    jListener,
+                    nextEntry,
                     eventPath,
                     eventType = event.type,
+                    capitalizedEventType = eventType.toCapitalized(),
                     eventBubbles = event.bubbles,
                     captureMethodName,
                     bubbleMethodName,
                     identifierSpecificCaptureMethodName,
                     identifierSpecificBubbleMethodName,
-                    mutableEvent;
+                    capitalizedIdentifier,
+                    mutableEvent,
+                    mutableEventTarget,
+                    _currentDispatchedTargetListeners = this._currentDispatchedTargetListeners,
+                    registeredCaptureEventListeners = this._registeredCaptureEventListeners,
+                    registeredBubbleEventListeners = this._registeredBubbleEventListeners;
 
                 if ("DOMContentLoaded" === eventType) {
                     loadedWindow = event.target.defaultView;
-                    if (loadedWindow && this._windowsAwaitingFinalRegistration[loadedWindow.uuid]) {
+                    if (loadedWindow && this._windowsAwaitingFinalRegistration.has(loadedWindow)) {
                         this._finalizeWindowRegistration(loadedWindow);
                         // Stop listening for DOMContentLoaded on this target
                         // Otherwise the eventManager's handleEvent will be called
@@ -2200,27 +2428,25 @@ if (typeof window !== "undefined") { // client-side
                     mutableEvent = event;
                 }
 
-                if (Element.isElement(mutableEvent.target) || mutableEvent.target instanceof Document || mutableEvent.target === window) {
-                    eventPath = this._eventPathForDomTarget(mutableEvent.target);
+                mutableEventTarget = mutableEvent.target;
+                if (Element.isElement(mutableEventTarget) || mutableEventTarget instanceof Document || mutableEventTarget === window) {
+                    eventPath = this._eventPathForDomTarget(mutableEventTarget);
                 } else {
-                    eventPath = this._eventPathForTarget(mutableEvent.target);
+                    eventPath = this._eventPathForTarget(mutableEventTarget);
                 }
 
                 // use most specific handler method available, possibly based upon the identifier of the event target
-                if (mutableEvent.target.identifier) {
-                    identifierSpecificCaptureMethodName = this.methodNameForCapturePhaseOfEventType(eventType, mutableEvent.target.identifier);
+                if (mutableEventTarget.identifier) {
+                    capitalizedIdentifier = mutableEventTarget.identifier.toCapitalized();
+                    identifierSpecificCaptureMethodName = this.methodNameForCapturePhaseOfEventType(eventType, mutableEventTarget.identifier, capitalizedEventType, capitalizedIdentifier);
+                    identifierSpecificBubbleMethodName = this.methodNameForBubblePhaseOfEventType(eventType, mutableEventTarget.identifier, capitalizedEventType, capitalizedIdentifier);
                 } else {
                     identifierSpecificCaptureMethodName = null;
-                }
-
-                if (mutableEvent.target.identifier) {
-                    identifierSpecificBubbleMethodName = this.methodNameForBubblePhaseOfEventType(eventType, mutableEvent.target.identifier);
-                } else {
                     identifierSpecificBubbleMethodName = null;
                 }
 
-                captureMethodName = this.methodNameForCapturePhaseOfEventType(eventType);
-                bubbleMethodName = this.methodNameForBubblePhaseOfEventType(eventType);
+                captureMethodName = this.methodNameForCapturePhaseOfEventType(eventType, null, capitalizedEventType);
+                bubbleMethodName = this.methodNameForBubblePhaseOfEventType(eventType, null, capitalizedEventType);
 
                 // Let the delegate handle the event first
                 if (this.delegate && typeof this.delegate.willDistributeEvent === FUNCTION_TYPE) {
@@ -2237,46 +2463,62 @@ if (typeof window !== "undefined") { // client-side
                 for (i = eventPath.length - 1; !mutableEvent.propagationStopped && (iTarget = eventPath[i]); i--) {
                     mutableEvent.currentTarget = iTarget;
 
-                    listenerEntries = this.registeredEventListenersForEventType_onTarget_(eventType, iTarget);
+                    listenerEntries = this._registeredEventListenersForEventType_onTarget_registeredEventListeners_(eventType, iTarget, registeredCaptureEventListeners);
                     if (!listenerEntries) {
                         continue;
                     }
-                    listenerEntryKeys = Object.keys(listenerEntries);
-
-                    for (j = 0; listenerEntries && !mutableEvent.immediatePropagationStopped && (jListenerEntry = listenerEntries[listenerEntryKeys[j]]); j++) {
-
-                        if (!jListenerEntry.capture) {
-                            continue;
+                    if(Array.isArray(listenerEntries)) {
+                        j=0;
+                        _currentDispatchedTargetListeners.set(listenerEntries,null);
+                        while ((nextEntry = listenerEntries[j++]) && !mutableEvent.immediatePropagationStopped) {
+                            this._invokeTargetListenerForEvent(iTarget, nextEntry, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
                         }
-
-                        jListener = jListenerEntry.listener;
-
-                        this._invokeTargetListenerForEvent(iTarget, jListener, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
+                        this._processCurrentDispatchedTargetListenersToRemove(iTarget, eventType, true, listenerEntries);
+                        _currentDispatchedTargetListeners.delete(listenerEntries);
                     }
+                    else {
+                        this._invokeTargetListenerForEvent(iTarget, listenerEntries, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
+                    }
+
                 }
 
                 // At Target Distribution
                 if (!mutableEvent.propagationStopped) {
                     mutableEvent.eventPhase = AT_TARGET;
-                    mutableEvent.currentTarget = iTarget = mutableEvent.target;
-
-                    listenerEntries = this.registeredEventListenersForEventType_onTarget_(eventType, iTarget);
+                    mutableEvent.currentTarget = iTarget = mutableEventTarget;
+                    //Capture
+                    listenerEntries = this._registeredEventListenersForEventType_onTarget_registeredEventListeners_(eventType, iTarget, registeredCaptureEventListeners);
                     if (listenerEntries) {
-                        listenerEntryKeys = Object.keys(listenerEntries);
-
-                        for (j = 0; listenerEntries && !mutableEvent.immediatePropagationStopped && (jListenerEntry = listenerEntries[listenerEntryKeys[j]]); j++) {
-
-                            jListener = jListenerEntry.listener;
-
-                            if (jListenerEntry.capture) {
-                                this._invokeTargetListenerForEvent(iTarget, jListener, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
+                        if(Array.isArray(listenerEntries)) {
+                            j=0;
+                            _currentDispatchedTargetListeners.set(listenerEntries,null);
+                            while ((nextEntry = listenerEntries[j++]) && !mutableEvent.immediatePropagationStopped) {
+                                this._invokeTargetListenerForEvent(iTarget, nextEntry, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
                             }
-
-                            if (jListenerEntry.bubble) {
-                                this._invokeTargetListenerForEvent(iTarget, jListener, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
-                            }
-
+                            this._processCurrentDispatchedTargetListenersToRemove(iTarget, eventType, true, listenerEntries);
+                            _currentDispatchedTargetListeners.delete(listenerEntries);
                         }
+                        else {
+                            this._invokeTargetListenerForEvent(iTarget, listenerEntries, mutableEvent, identifierSpecificCaptureMethodName, captureMethodName);
+                        }
+
+                    }
+                    //Bubble
+                    listenerEntries = this._registeredEventListenersForEventType_onTarget_registeredEventListeners_(eventType, iTarget, registeredBubbleEventListeners);
+                    if (listenerEntries) {
+                        if(Array.isArray(listenerEntries)) {
+                            j=0;
+                            _currentDispatchedTargetListeners.set(listenerEntries,null);
+                            while ((nextEntry = listenerEntries[j++]) && !mutableEvent.immediatePropagationStopped) {
+                                this._invokeTargetListenerForEvent(iTarget, nextEntry, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
+                            }
+                            this._processCurrentDispatchedTargetListenersToRemove(iTarget, eventType, false, listenerEntries);
+                            _currentDispatchedTargetListeners.delete(listenerEntries);
+                        }
+                        else {
+                            this._invokeTargetListenerForEvent(iTarget, listenerEntries, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
+                        }
+
                     }
                 }
 
@@ -2285,23 +2527,23 @@ if (typeof window !== "undefined") { // client-side
                 for (i = 0; eventBubbles && !mutableEvent.propagationStopped && (iTarget = eventPath[i]); i++) {
                     mutableEvent.currentTarget = iTarget;
 
-                    listenerEntries = this.registeredEventListenersForEventType_onTarget_(eventType, iTarget);
+                    listenerEntries = this._registeredEventListenersForEventType_onTarget_registeredEventListeners_(eventType, iTarget, registeredBubbleEventListeners);
                     if (!listenerEntries) {
                         continue;
                     }
-                    listenerEntryKeys = Object.keys(listenerEntries);
 
-                    for (j = 0; listenerEntries && !mutableEvent.immediatePropagationStopped && (jListenerEntry = listenerEntries[listenerEntryKeys[j]]); j++) {
-
-                        if (!jListenerEntry.bubble) {
-                            continue;
-                        }
-
-                        jListener = jListenerEntry.listener;
-
-                        this._invokeTargetListenerForEvent(iTarget, jListener, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
-
-                    }
+                    if(Array.isArray(listenerEntries)) {
+                        j=0;
+                        _currentDispatchedTargetListeners.set(listenerEntries,null);
+                          while ((nextEntry = listenerEntries[j++]) && !mutableEvent.immediatePropagationStopped) {
+                              this._invokeTargetListenerForEvent(iTarget, nextEntry, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
+                          }
+                          this._processCurrentDispatchedTargetListenersToRemove(iTarget, eventType, false, listenerEntries);
+                          _currentDispatchedTargetListeners.delete(listenerEntries);
+                      }
+                      else {
+                          this._invokeTargetListenerForEvent(iTarget, listenerEntries, mutableEvent, identifierSpecificBubbleMethodName, bubbleMethodName);
+                      }
                 }
 
                 mutableEvent.eventPhase = NONE;
@@ -2316,6 +2558,8 @@ if (typeof window !== "undefined") { // client-side
                     document.body.removeEventListener("DOMAttrModified", this.domModificationEventHandler, true);
                     document.body.removeEventListener("DOMCharacterDataModified", this.domModificationEventHandler, true);
                 }
+                //console.profileEnd("handleEvent "+event.type);
+                //console.groupTimeEnd("handleEvent");
             }
         },
 
@@ -2323,15 +2567,22 @@ if (typeof window !== "undefined") { // client-side
          * @private
          */
         _invokeTargetListenerForEvent: {
-            value: function (iTarget, jListener, mutableEvent, identifierSpecificPhaseMethodName, phaseMethodName) {
-                var listenerFunction;
-                if ((identifierSpecificPhaseMethodName && typeof (listenerFunction = jListener[identifierSpecificPhaseMethodName]) === FUNCTION_TYPE)
-                    || (typeof (listenerFunction = jListener[phaseMethodName]) === FUNCTION_TYPE)
-                    || (typeof (listenerFunction = jListener.handleEvent) === FUNCTION_TYPE)) {
-                    listenerFunction.call(jListener, mutableEvent);
-                } else if (typeof jListener === FUNCTION_TYPE) {
+            value: function _invokeTargetListenerForEvent(iTarget, jListener, mutableEvent, identifierSpecificPhaseMethodName, phaseMethodName) {
+                var functionType = FUNCTION_TYPE;
+
+                if (typeof jListener === functionType) {
                     jListener.call(iTarget, mutableEvent);
                 }
+                else if(identifierSpecificPhaseMethodName && typeof jListener[identifierSpecificPhaseMethodName] === functionType) {
+                    jListener[identifierSpecificPhaseMethodName](mutableEvent);
+                }
+                else if(typeof jListener[phaseMethodName] === functionType) {
+                    jListener[phaseMethodName](mutableEvent);
+                }
+                else if(typeof jListener.handleEvent === functionType) {
+                    jListener.handleEvent(mutableEvent);
+                }
+
             }
         },
 
@@ -2366,9 +2617,8 @@ if (typeof window !== "undefined") { // client-side
                                 activeTarget = this._findActiveTarget(associatedComponent);
                             }
 
-                            if (!associatedComponent._preparedForActivationEvents) {
+                            if (!associatedComponent.preparedForActivationEvents) {
                                 associatedComponent._prepareForActivationEvents();
-                                associatedComponent._preparedForActivationEvents = true;
                             }
                         }
                     }
@@ -2406,14 +2656,14 @@ if (typeof window !== "undefined") { // client-side
             value: function (target) {
 
                 var foundTarget = null,
-                    uuidCheckedTargetMap = {};
+                    checkedTargetMap = new WeakMap();
 
                 //TODO report if a cycle is detected?
-                while (!foundTarget && target && !(target.uuid in uuidCheckedTargetMap)) {
+                while (!foundTarget && target && !(checkedTargetMap.has(target))) {
 
                     //TODO complain if a non-Target-alike is considered
 
-                    uuidCheckedTargetMap[target.uuid] = target;
+                    checkedTargetMap.set(target,true);
 
                     if (target.acceptsActiveTarget) {
                         foundTarget = target;
@@ -2441,24 +2691,24 @@ if (typeof window !== "undefined") { // client-side
                 var targetCandidate = target,
                     application = this.application,
                     eventPath = [],
-                    discoveredTargets = {};
+                    discoveredTargets = new WeakMap();
 
                 // Consider the target "discovered" for less specialized detection of cycles
-                discoveredTargets[target.uuid] = target;
+                discoveredTargets.set(target,true);
 
                 do {
-                    if (!(targetCandidate.uuid in discoveredTargets)) {
+                    if (!discoveredTargets.has(targetCandidate)) {
                         eventPath.push(targetCandidate);
-                        discoveredTargets[targetCandidate.uuid] = targetCandidate;
+                        discoveredTargets.set(targetCandidate,true);
                     }
 
                     targetCandidate = targetCandidate.nextTarget;
 
-                    if (!targetCandidate || targetCandidate.uuid in discoveredTargets) {
+                    if (!targetCandidate || discoveredTargets.has(targetCandidate)) {
                         targetCandidate = application;
                     }
 
-                    if (targetCandidate && (targetCandidate.uuid in discoveredTargets)) {
+                    if (targetCandidate && discoveredTargets.has(targetCandidate)) {
                         targetCandidate = null;
                     }
                 }
@@ -2532,9 +2782,9 @@ if (typeof window !== "undefined") { // client-side
         /**
          * @private
          */
-        _elementEventHandlerByUUID: {
+        _elementEventHandlerByElement: {
             enumerable: false,
-            value: {}
+            value: null
         },
 
         /**
@@ -2551,7 +2801,7 @@ if (typeof window !== "undefined") { // client-side
                 if (oldEventHandler) {
                     this.unregisterEventHandlerForElement(anElement);
                 }
-                this._elementEventHandlerByUUID[(anElement.eventHandlerUUID = anElementEventHandler.uuid)] = anElementEventHandler;
+                this._elementEventHandlerByElement.set(anElement,anElementEventHandler);
             }
         },
 
@@ -2562,19 +2812,18 @@ if (typeof window !== "undefined") { // client-side
         unregisterEventHandlerForElement: {
             enumerable: false,
             value: function (anElement) {
-                delete this._elementEventHandlerByUUID[anElement.eventHandlerUUID];
-                delete anElement.eventHandlerUUID;
+                this._elementEventHandlerByElement.delete(anElement);
             }
         },
         /**
          @function
          @param {Element} anElement
-         @returns this._elementEventHandlerByUUID[anElement.eventHandlerUUID]
+         @returns this._elementEventHandlerByElement.get(anElement)
          */
         eventHandlerForElement: {
             enumerable: false,
             value: function (anElement) {
-                return this._elementEventHandlerByUUID[anElement.eventHandlerUUID];
+                return this._elementEventHandlerByElement.get(anElement);
             }
         },
 
@@ -2625,4 +2874,3 @@ if (typeof window !== "undefined") { // client-side
     });
 
 } // client-side
-

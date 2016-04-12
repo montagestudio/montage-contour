@@ -11,14 +11,6 @@ var CLASS_PREFIX = "montage-ModalOverlay";
  * @extends Overlay
  */
 exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */ {
-    /**
-     * @constructs ModalOverlay
-     */
-    constructor: {
-        value: function ModalOverlay() {
-            this.super();
-        }
-    },
 
     enterDocument: {
         value: function (firstTime) {
@@ -49,6 +41,10 @@ exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */
         value: true
     },
 
+    _slotComponent: {
+        value: null
+    },
+
     /**
      * Returns a promise for the show of the overlay. A modal overlay might not
      * be immediately shown if another modal overlay is being shown. When this
@@ -56,7 +52,7 @@ exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */
      * overlay be shown.
      */
     show: {
-        value: function () {
+        value: function (component) {
             var queue = this._queue,
                 ix = queue.indexOf(this),
                 promise;
@@ -70,9 +66,18 @@ exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */
                     this.super();
                     promise = Promise.resolve();
                 } else {
-                    this._showPromise = Promise.defer();
+                    promise = this._showPromise = {};
+                     this._showPromise.promise = new Promise(function(resolve, reject) {
+                         promise.resolve = resolve;
+                         promise.reject = reject;
+                     });
                     promise = this._showPromise.promise;
                 }
+
+                if (component) {
+                    this._slotComponent.content = component;
+                }
+
                 queue.push(this);
 
                 // The overlay is scheduled to draw so we just return the
@@ -81,7 +86,11 @@ exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */
                 // queue.
             } else {
                 if (ix === 0) {
-                    this._showPromise = Promise.defer();
+                    promise = this._showPromise = {};
+                     this._showPromise.promise = new Promise(function(resolve, reject) {
+                         promise.resolve = resolve;
+                         promise.reject = reject;
+                     });
                     queue.push(this);
                 }
                 promise = this._showPromise.promise;
@@ -107,7 +116,7 @@ exports.ModalOverlay = Overlay.specialize(/** @lends ModalOverlay.prototype # */
                 }
             } else if (ix > 0) {
                 queue.splice(ix, 1);
-                this._showPromise.reject();
+                this._showPromise.reject(new Error("Modal Overlay position in the queue is not 0"));
             }
         }
     },

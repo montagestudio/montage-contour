@@ -1,15 +1,12 @@
-"use strict";
 
 /**
  * @module montage/core/meta/blueprint
  * @requires montage/core/core
  * @requires core/exception
  * @requires core/promise
- * @requires core/logger
  */
 var Montage = require("../core").Montage;
 var Promise = require("../promise").Promise;
-var ObjectProperty = require("./object-property").ObjectProperty;
 var BinderModule = require("./binder");
 var BlueprintReference = require("./blueprint-reference").BlueprintReference;
 var PropertyBlueprint = require("./property-blueprint").PropertyBlueprint;
@@ -17,8 +14,6 @@ var AssociationBlueprint = require("./association-blueprint").AssociationBluepri
 var DerivedPropertyBlueprint = require("./derived-property-blueprint").DerivedPropertyBlueprint;
 var EventBlueprint = require("./event-blueprint").EventBlueprint;
 var PropertyValidationRule = require("./validation-rule").PropertyValidationRule;
-var deprecate = require("../deprecate");
-var logger = require("../logger").logger("blueprint");
 
 var Defaults = {
     name: "default",
@@ -37,8 +32,13 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
 
     constructor: {
         value: function Blueprint() {
-            this.superForValue("constructor")();
             this._eventBlueprints = [];
+            this._propertyBlueprints = [];
+            this._propertyBlueprintGroups = {};
+            Object.defineProperty(this,"_propertyBlueprintsTable",{ value:{},writable: false});
+            Object.defineProperty(this,"_eventBlueprintsTable",{ value:{},writable: false});
+
+
             this.defineBinding("eventBlueprints", {"<-": "_eventBlueprints.concat(parent.eventBlueprints)"});
         }
     },
@@ -55,18 +55,6 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
 
             return this;
         }
-    },
-
-    /**
-     * @function
-     * @param {string} name
-     * @param {string} moduleId
-     * @returns itself
-     */
-    initWithNameAndModuleId: {
-        value: deprecate.deprecateMethod(void 0, function (name) {
-            return this.initWithName(name);
-        }, "Blueprint#initWithNameAndModuleId", "ModuleBlueprint#initWithModuleAndExportName")
     },
 
     serializeSelf: {
@@ -176,15 +164,26 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
      * @returns newPrototype
      */
     create: {
-        value: function (aPrototype, propertyDescriptor) {
+        value: function (aPrototype, propertyDescriptor, constructorDescriptor) {
             if ((typeof aPrototype === "undefined") || (Blueprint.prototype.isPrototypeOf(aPrototype))) {
                 var parentCreate = Object.getPrototypeOf(Blueprint).create;
-                return parentCreate.call(this, (typeof aPrototype === "undefined" ? this : aPrototype), propertyDescriptor);
+
+                return parentCreate.call(this, (typeof aPrototype === "undefined" ? this : aPrototype), propertyDescriptor, constructorDescriptor);
             }
-            var newConstructor = Montage.create(aPrototype, propertyDescriptor);
+
+            var newConstructor;
+
+            if (typeof aPrototype.specialize !== "function" && !propertyDescriptor) {
+                newConstructor = new aPrototype();
+
+            } else {
+                newConstructor = aPrototype.specialize(propertyDescriptor, constructorDescriptor);
+            }
+
             this.ObjectProperty.applyWithBlueprint(newConstructor.prototype, this);
             // We have just created a custom prototype lets use it.
             this.customPrototype = true;
+
             return newConstructor;
         }
     },
@@ -216,19 +215,20 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
             var self = this;
             if (this.customPrototype) {
                 throw new Error("FIXME");
-                var results = Promise.defer();
-                require.async(this.moduleId,
-                    function (exports) {
-                        results.resolve(exports);
-                    });
-                return results.promise.then(function (exports) {
+                var resultsPromise = new Promise(function(resolve, reject) {
+                    require.async(self.moduleId,
+                        function(exports) {
+                            resolve(exports);
+                        });
+                });
+                return resultsPromise.then(function(exports) {
                         var prototype = exports[self.prototypeName];
                         return (prototype ? prototype : null);
                     }
                 );
             } else {
                 var parentInstancePrototype = (this.parent ? this.parent.newInstancePrototype() : Montage );
-                var newConstructor = Montage.create(parentInstancePrototype, {
+                var newConstructor = parentInstancePrototype.specialize({
                     // Token class
                     init: {
                         value: function () {
@@ -268,15 +268,6 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     blueprintInstanceModule: {
         serializable: false,
         value: null
-    },
-
-    blueprintInstanceModuleId: {
-        get: function () {
-            throw new Error("blueprintInstanceModuleId is deprecated, use blueprintInstanceModule instead");
-        },
-        set: function () {
-            throw new Error("blueprintInstanceModuleId is deprecated, use blueprintInstanceModule instead");
-        }
     },
 
     /**
@@ -345,24 +336,6 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
         }
     },
 
-    moduleId: {
-        get: function () {
-            throw new Error("Blueprint#moduleId is deprecated, use ModuleBlueprint#module instead");
-        },
-        set: function () {
-            throw new Error("Blueprint#moduleId is deprecated, use ModuleBlueprint#module instead");
-        }
-    },
-
-    prototypeName: {
-        get: function () {
-            throw new Error("Blueprint#prototypeName is deprecated, use ModuleBlueprint#exportName instead");
-        },
-        set: function () {
-            throw new Error("Blueprint#prototypeName is deprecated, use ModuleBlueprint#exportName instead");
-        }
-    },
-
     /**
      * Defines whether the blueprint should use custom prototype for new
      * instances.
@@ -378,8 +351,7 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     },
 
     _propertyBlueprints: {
-        value: [],
-        distinct: true
+        value: null
     },
 
     /**
@@ -397,9 +369,7 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     },
 
     _propertyBlueprintsTable: {
-        value: {},
-        distinct: true,
-        writable: false
+        value: null
     },
 
     /**
@@ -587,8 +557,7 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     },
 
     _propertyBlueprintGroups: {
-        distinct: true,
-        value: {}
+        value: null
     },
 
     /**
@@ -710,9 +679,7 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     },
 
     _eventBlueprintsTable: {
-        value: {},
-        distinct: true,
-        writable: false
+        value: null
     },
 
 
@@ -916,12 +883,6 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
 
 }, {
 
-    getBlueprintWithModuleId: {
-        value: deprecate.deprecateMethod(void 0, function (moduleId, _require) {
-            return require("./module-blueprint").ModuleBlueprint.getBlueprintWithModuleId(moduleId, _require);
-        }, "Blueprint.getBlueprintWithModuleId", "ModuleBlueprint.getBlueprintWithModuleId")
-    },
-
     /**
      * Creates a default blueprint with all enumerable properties.
      *
@@ -930,14 +891,14 @@ var Blueprint = exports.Blueprint = Montage.specialize( /** @lends Blueprint.pro
     createDefaultBlueprintForObject: {
         value:function (object) {
             if (object) {
-                var target = Montage.getInfoForObject(object).isInstance ? Object.getPrototypeOf(object) : object;
+                var target = Montage.getInfoForObject(object).isInstance ? Object.getPrototypeOf(object) : object.prototype;
                 var info = Montage.getInfoForObject(target);
 
                 // Create `new this()` so that subclassing works
                 var newBlueprint = new this();
 
                 for (var name in target) {
-                    if ((name.charAt(0) !== "_") && (target.hasOwnProperty(name))) {
+                    if ((name[0] !== "_") && (target.hasOwnProperty(name))) {
                         // We don't want to list private properties
                         var value = target[name];
                         var propertyBlueprint;
@@ -969,4 +930,3 @@ var UnknownBlueprint = Object.freeze(new Blueprint().initWithName("Unknown"));
 
 var UnknownPropertyBlueprint = Object.freeze(new PropertyBlueprint().initWithNameBlueprintAndCardinality("Unknown", null, 1));
 var UnknownEventBlueprint = Object.freeze(new EventBlueprint().initWithNameAndBlueprint("Unknown", null));
-

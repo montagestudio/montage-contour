@@ -1,5 +1,5 @@
 var Montage = require("montage").Montage,
-    Bindings = require("montage/core/bindings").Bindings;
+    Bindings = require("montage/core/core").Bindings;
 
 describe("test/core/super-spec", function () {
     var Vehicle, Car, Beetle,
@@ -27,6 +27,33 @@ describe("test/core/super-spec", function () {
         vehicleConstructorSpy = function () {calledSpy.push("vehicleConstructorSpy")};
         carConstructorSpy = function () {calledSpy.push("carConstructorSpy")};
         beetleConstructorSpy = function () {calledSpy.push("beetleConstructorSpy")};
+    });
+    describe("observed getter/setter calling super", function () {
+        var getBarCounter = 0,
+            setBarCounter = 0,
+            Foo = Montage.specialize({
+                bar: {
+                    get: function getBar() {
+                        getBarCounter++;
+                        if (getBarCounter < 10) {
+                            this.super();
+                        }
+                    },
+                    set: function setBar(value) {
+                        setBarCounter++;
+                        if (setBarCounter < 10) {
+                            this.super(value);
+                        }
+                    }
+                }
+            }),
+            foo = new Foo();
+
+        foo.addOwnPropertyChangeListener("bar", function () {}, false);
+        it("should not enter in a direct infinite loop", function () {
+            foo.bar = foo.bar;
+            expect((getBarCounter < 10) && (setBarCounter < 10)).toBe(true);
+        });
     });
     describe("instance", function () {
         describe("methods", function () {

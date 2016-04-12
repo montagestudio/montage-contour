@@ -5,15 +5,12 @@
 require("collections/shim");
 require("./shim/object");
 require("./shim/array");
-require("./shim/string");
 require("./extras/object");
 require("./extras/date");
 require("./extras/element");
 require("./extras/function");
 require("./extras/regexp");
 require("./extras/string");
-
-var deprecate = require("./deprecate");
 
 var ATTRIBUTE_PROPERTIES = "AttributeProperties",
     UNDERSCORE = "_",
@@ -22,24 +19,22 @@ var ATTRIBUTE_PROPERTIES = "AttributeProperties",
     ENUMERABLE = "enumerable",
     DISTINCT = "distinct",
     SERIALIZABLE = "serializable",
-    MODIFY = "modify";
-
-var ARRAY_PROTOTYPE = Array.prototype;
-
-var OBJECT_PROTOTYPE = Object.prototype;
-
-// The CONSTRUCTOR_COMPATIBILITY flag marks areas that allow the migration from
-// Montage.create to Constructor.specialize The following is done:
-// - Any properties defined on the prototype that are used on the constructor
-//   fire a deperecation warning prompting the developer to move them to the
-//   second argument of specialize().
-// - Adds a create method to the constructor can be used as Proto.create().
-// - Adds support for 'didCreate' so that it can be used interchangeably with
-//   the 'constructor' property.
-// - When calling Montage.create with a function as the first argument we use
-//   the function as a constructor or call specialize on it to create a
-//   subtype.
-var CONSTRUCTOR_COMPATIBILITY = true;
+    UNDERSCORE_UNICODE = 95,
+    ARRAY_PROTOTYPE = Array.prototype,
+    OBJECT_PROTOTYPE = Object.prototype,
+    accessorPropertyDescriptor = {
+        get: void 0,
+        set: void 0,
+        configurable: false,
+        enumerable: false,
+        writable: false
+    },
+    valuePropertyDescriptor = {
+        value: void 0,
+        configurable: false,
+        enumerable: false,
+        writable: false
+    };
 
 /**
  * The Montage constructor provides conveniences for sub-typing
@@ -51,15 +46,11 @@ var CONSTRUCTOR_COMPATIBILITY = true;
  */
 var Montage = exports.Montage = function Montage() {};
 
-// to monkey patch a method on an object
-Montage.deprecate = deprecate.deprecateMethod(Montage, deprecate.deprecateMethod, "Montage.deprecate", "deprecate module's deprecateMethod");
-
-// too call a function immediately and log a deprecation warning
-Montage.callDeprecatedFunction = deprecate.deprecateMethod(Montage, deprecate.callDeprecatedFunction, "Montage.callDeprecatedFunction", "deprecate module's callDeprecatedFunction");
-
 var PROTO_IS_SUPPORTED = {}.__proto__ === Object.prototype;
 var PROTO_PROPERTIES_BLACKLIST = {"_montage_metadata": 1, "__state__": 1};
-var FUNCTION_PROPERTIES = Object.getOwnPropertyNames(Function);
+
+valuePropertyDescriptor.value = false;
+Object.defineProperty(Montage, "_hasUserDefinedConstructor", valuePropertyDescriptor);
 
 /**
  * Customizes a type with idiomatic JavaScript constructor and prototype
@@ -78,9 +69,9 @@ var FUNCTION_PROPERTIES = Object.getOwnPropertyNames(Function);
  * derrives prototypically from `this`, with a prototype that inherits
  * `this.prototype`, with the given property descriptors applied.
  */
-Object.defineProperty(Montage, "specialize", {
-    value: function specialize(prototypeProperties, constructorProperties) {
-        var constructor, prototype, names, propertyName, property, i, constructorProperty,
+
+valuePropertyDescriptor.value = function specialize(prototypeProperties, constructorProperties) {
+        var constructor, prototype, names, propertyName, property, i, length,
             // check if this constructor has Montage capabilities
             parent = this,
             foreignParent = typeof this.specialize === "undefined";
@@ -90,37 +81,54 @@ Object.defineProperty(Montage, "specialize", {
 
         if (prototypeProperties.constructor && prototypeProperties.constructor.value) {
             constructor = prototypeProperties.constructor.value;
-        } else if (prototypeProperties.didCreate && prototypeProperties.didCreate.value) {
-            constructor = Montage.deprecate(null, prototypeProperties.didCreate.value, "didCreate", "constructor");
-            //constructor = prototypeProperties.didCreate.value;
+            constructor._hasUserDefinedConstructor = true;
+
         } else {
-            constructor = function Anonymous() {
-                return this.superForValue("constructor")() || this;
-                //return parent.apply(this, arguments) || this;
-            };
+            if (this._hasUserDefinedConstructor) {
+                constructor = function Anonymous() {
+                    return this.superForValue("constructor")() || this;
+                    //return parent.apply(this, arguments) || this;
+                };
+            } else {
+                constructor = function Anonymous() {
+                    return this;
+                }
+            }
         }
+
         if (PROTO_IS_SUPPORTED) {
             constructor.__proto__ = parent;
         } else {
             names = Object.getOwnPropertyNames(parent);
-            for (var i = 0; i < names.length; i++) {
+
+            for (i = 0, length = names.length; i < length; i++) {
                 propertyName = names[i];
+
                 if (!(PROTO_PROPERTIES_BLACKLIST.hasOwnProperty(propertyName))) {
                     property = Object.getOwnPropertyDescriptor(constructor, propertyName);
+
                     if (!property || property.configurable) {
                         Montage.defineProperty(constructor, propertyName, Object.getOwnPropertyDescriptor(parent, propertyName));
                     }
                 }
             }
+
             constructor.__constructorProto__ = parent;
+
             Montage.defineProperty(constructor, "isPrototypeOf", {
                 value: function (object) {
+                    var prototype;
+
                     while (object !== null) {
-                        if(Object.getPrototypeOf(object) === this) {
+                        prototype = Object.getPrototypeOf(object);
+
+                        if(prototype === this) {
                             return true;
                         }
-                        object = Object.getPrototypeOf(object);
+
+                        object = prototype;
                     }
+
                     return false;
                 },
                 enumerable: false
@@ -129,91 +137,79 @@ Object.defineProperty(Montage, "specialize", {
 
         prototype = Object.create(this.prototype);
 
-        if(foreignParent) {
+        if (foreignParent) {
             // give the constructor all the properties of Montage
             names = Object.getOwnPropertyNames(Montage);
-            for ( i = 0; i < names.length; i++) {
+
+            for (i = 0, length = names.length; i < length; i++) {
                 propertyName = names[i];
                 property = Object.getOwnPropertyDescriptor(constructor, propertyName);
+
                 if (!property || property.configurable) {
                     Montage.defineProperty(constructor, propertyName, Object.getOwnPropertyDescriptor(Montage, propertyName));
                 }
             }
+
             // give the prototype all the properties of Montage.prototype
             names = Object.getOwnPropertyNames(Montage.prototype);
-            for ( i = 0; i < names.length; i++) {
+
+            for (i = 0, length = names.length; i < length; i++) {
                 propertyName = names[i];
                 property = Object.getOwnPropertyDescriptor(constructor, propertyName);
+
                 if (!property || property.configurable) {
                     Montage.defineProperty(prototype, propertyName, Object.getOwnPropertyDescriptor(Montage.prototype, propertyName));
                 }
             }
         }
 
+        if ("blueprint" in prototypeProperties) {
+            Montage.defineProperty(constructor, "blueprint", prototypeProperties.blueprint);
+        }
+
+        if ("blueprintModuleId" in prototypeProperties) {
+            Montage.defineProperty(constructor, "blueprintModuleId", prototypeProperties.blueprintModuleId);
+        }
+
         Montage.defineProperties(prototype, prototypeProperties);
 
-        if (CONSTRUCTOR_COMPATIBILITY) {
-            // to catch class properties
-            constructorProperty = function (original, constructor, propertyName) {
-                function deprecationWrapper() {
-                    if(this === constructor) {
-                        deprecate.deprecationWarning(Montage.getInfoForObject(constructor).objectName + "."
-                            + propertyName + " should be moved to constructorProperties", null, 3);
-                    }
-                    return original.apply(this, arguments);
-                }
-                deprecationWrapper.deprecatedFunction = original;
-                return deprecationWrapper;
-            };
-            for (propertyName in prototypeProperties) {
-                if(FUNCTION_PROPERTIES.has(propertyName)) {
-                    // illegal properties on function
-                    delete prototypeProperties[propertyName];
-                } else {
-                    property = prototypeProperties[propertyName];
-                    if(property.value && typeof property.value === "function" && !property.value.__isConstructor__) {
-                        property.value = constructorProperty(property.value, constructor, propertyName);
-                    } else {
-                        if(property.get) {
-                            property.get = constructorProperty(property.get, constructor, propertyName);
-                        }
-                        if(property.set) {
-                            property.set = constructorProperty(property.set, constructor, propertyName);
-                        }
-                    }
-                }
-            }
-            Montage.defineProperties(constructor, prototypeProperties);
-            Montage.defineProperty(constructor, "create", {
-                value: function () {
-                    return new constructor();
-                },
-                enumerable: false
-            });
-        }
-        // end compatibility code
         // needs to be done afterwards so that it overrides any prototype properties
         Montage.defineProperties(constructor, constructorProperties);
-        Montage.defineProperty(constructor, "__isConstructor__", {
-            value: true,
-            enumerable: false
+
+        Montage.defineProperties(constructor, {
+            __isConstructor__: {
+                value: true,
+                enumerable: false
+            },
+
+            _superCache: {
+                value: {},
+                enumerable: false
+            }
         });
-        Montage.defineProperty(constructor, "_superCache", {
-            value: {},
-            enumerable: false
-        });
+
         constructor.prototype = prototype;
+
         Montage.defineProperty(prototype, "constructor", {
             value: constructor,
             enumerable: false
         });
+
+        // Super needs
+        Montage.defineProperty(constructor, "constructor", {
+            value: constructor,
+            enumerable: false
+        });
+
         return constructor;
 
-    },
-    writable: true,
-    configurable: true,
-    enumerable: false
-});
+    };
+valuePropertyDescriptor.writable = false;
+valuePropertyDescriptor.configurable = false;
+valuePropertyDescriptor.enumerable = false;
+Object.defineProperty(Montage, "specialize", valuePropertyDescriptor);
+
+
 if (!PROTO_IS_SUPPORTED) {
     // If the __proto__ property isn't supported than we need to patch up behavior for constructor functions
     var originalGetPrototypeOf = Object.getPrototypeOf;
@@ -227,50 +223,24 @@ if (!PROTO_IS_SUPPORTED) {
     };
 }
 
-/**
- * @deprecated
- */
-Object.defineProperty(Montage, "create", {
-    configurable: true,
-    value: function (aPrototype, propertyDescriptors) {
-        deprecate.deprecationWarning("Montage.create()", "Montage.specialize() or new Component()");
-        if (aPrototype !== undefined && (typeof aPrototype !== "object"
-                && /* CONSTRUCTOR_COMPATIBILITY*/typeof aPrototype !== "function")) {
-            throw new TypeError("Object prototype may only be an Object or null, not '" + aPrototype + "'");
-        }
-        aPrototype = typeof aPrototype === "undefined" ? this : aPrototype;
-        // CONSTRUCTOR_COMPATIBILITY
-        // if aPrototype is a function then we behave as a constructor.
-        if (typeof aPrototype === "function") {
-            if (!propertyDescriptors) {
-                return new aPrototype();
-            } else {
-                return aPrototype.specialize(propertyDescriptors);
-            }
-            // Otherwise behave like Object.create()
-        } else {
-            var result = Object.create(aPrototype);
-            if(propertyDescriptors) {
-                Montage.defineProperties(result, propertyDescriptors);
-            }
-            return result;
-        }
-    }
-});
-
 var extendedPropertyAttributes = [SERIALIZABLE];
 
 // Extended property attributes, the property name format is "_" + attributeName + "AttributeProperties"
 /**
  * @member external:Object#extendedPropertyAttributes
  */
+
+ valuePropertyDescriptor.writable = true;
+ valuePropertyDescriptor.configurable = false;
+ valuePropertyDescriptor.enumerable = false;
+
 extendedPropertyAttributes.forEach(function (name) {
-    Object.defineProperty(Object.prototype, UNDERSCORE + name + ATTRIBUTE_PROPERTIES, {
-        enumerable: false,
-        configurable: false,
-        writable: true,
-        value: {}
-    });
+    var propertyName = UNDERSCORE;
+
+    propertyName += name;
+    propertyName += ATTRIBUTE_PROPERTIES;
+    valuePropertyDescriptor.value = {};
+    Object.defineProperty(Object.prototype, propertyName, valuePropertyDescriptor);
 });
 
 /**
@@ -303,9 +273,8 @@ extendedPropertyAttributes.forEach(function (name) {
  *     writable: true | false
  * });
  */
-Object.defineProperty(Montage, "defineProperty", {
-
-    value: function (obj, prop, descriptor) {
+valuePropertyDescriptor.writable = valuePropertyDescriptor.configurable = valuePropertyDescriptor.enumerable = false;
+valuePropertyDescriptor.value = function Montage_defineProperty(obj, prop, descriptor) {
         if (! (typeof obj === "object" || typeof obj === "function") || obj === null) {
             throw new TypeError("Object must be an object, not '" + obj + "'");
         }
@@ -338,8 +307,7 @@ Object.defineProperty(Montage, "defineProperty", {
             }
         }
 
-
-        if (!descriptor.hasOwnProperty(ENUMERABLE) && prop.charAt(0) === UNDERSCORE) {
+        if (!descriptor.hasOwnProperty(ENUMERABLE) && prop.charCodeAt(0) === UNDERSCORE_UNICODE) {
             descriptor.enumerable = false;
         }
         if (!descriptor.hasOwnProperty(SERIALIZABLE)) {
@@ -357,210 +325,38 @@ Object.defineProperty(Montage, "defineProperty", {
             getAttributeProperties(obj, SERIALIZABLE)[prop] = descriptor.serializable;
         }
 
-        // TODO replace this with Object.clone from collections - @kriskowal
-        //this is added to enable value properties with [] or Objects that are new for every instance
-        if (descriptor.distinct === true && typeof descriptor.value === "object") {
-            (function (prop,internalProperty, value, obj) {
-                var defineInternalProperty = function (obj, internalProperty, value) {
-                    Object.defineProperty(obj, internalProperty, {
-                        enumerable: false,
-                        configurable: true,
-                        writable: true,
-                        value: value
-                    });
-                };
-                if (value.constructor === Object && Object.getPrototypeOf(value) === OBJECT_PROTOTYPE) {
-                    // we have an object literal {...}
-                    if (Object.keys(value).length !== 0) {
-                        Object.defineProperty(obj, prop, {
-                            configurable: true,
-                            get: function () {
-                                //Special case for object to copy the values
-                                var returnValue = this[internalProperty];
-                                if (!returnValue) {
-                                    var k;
-                                    returnValue = {};
-                                    for (k in value) {
-                                        returnValue[k] = value[k];
-                                    }
-                                    if(!this.hasOwnProperty(internalProperty)) {
-                                        defineInternalProperty(this, internalProperty, returnValue);
-                                    } else {
-                                        this[internalProperty] = returnValue;
-                                    }
-                                }
-                                return returnValue;
-                            },
-                            set: function (value) {
-                                if(!this.hasOwnProperty(internalProperty)) {
-                                    defineInternalProperty(this, internalProperty, value);
-                                } else {
-                                    this[internalProperty] = value;
-                                }
-                            }
-                        });
-                    } else {
-                        Object.defineProperty(obj, prop, {
-                            configurable: true,
-                            get: function () {
-                                var returnValue = this[internalProperty];
-                                if (!returnValue) {
-                                    returnValue = {};
-                                    if (this.hasOwnProperty(internalProperty))  {
-                                        this[internalProperty] = returnValue;
-                                    } else {
-                                        defineInternalProperty(this, internalProperty, returnValue);
-                                    }
-                                }
-                                return returnValue;
-                            },
-                            set: function (value) {
-                                if(!this.hasOwnProperty(internalProperty)) {
-                                    defineInternalProperty(this, internalProperty, value);
-                                } else {
-                                    this[internalProperty] = value;
-                                }
-                            }
-                        });
-                    }
-
-                } else if ((value.__proto__ || Object.getPrototypeOf(value)) === ARRAY_PROTOTYPE) {
-                    // we have an array literal [...]
-                    if (value.length !== 0) {
-                        Object.defineProperty(obj, prop, {
-                            configurable: true,
-                            get: function () {
-                                //Special case for object to copy the values
-                                var returnValue = this[internalProperty];
-                                if (!returnValue) {
-                                    var i, k;
-                                    returnValue = [];
-                                    for (i = 0; typeof (k = value[i]) !== "undefined"; i++) {
-                                        returnValue[i] = k;
-                                    }
-                                    if(!this.hasOwnProperty(internalProperty)) {
-                                        defineInternalProperty(this, internalProperty, returnValue);
-                                    } else {
-                                        this[internalProperty] = returnValue;
-                                    }
-                                }
-                                return returnValue;
-                            },
-                            set: function (value) {
-                                if(!this.hasOwnProperty(internalProperty)) {
-                                    defineInternalProperty(this, internalProperty, value);
-                                } else {
-                                    this[internalProperty] = value;
-                                }
-                            }
-                        });
-
-                    } else {
-                        Object.defineProperty(obj, prop, {
-                            configurable: true,
-                            get: function () {
-                                var returnValue = this[internalProperty];
-                                if (!returnValue) {
-                                    returnValue = [];
-                                    if (this.hasOwnProperty(internalProperty))  {
-                                        this[internalProperty] = returnValue;
-                                    } else {
-                                        defineInternalProperty(this, internalProperty, returnValue);
-                                    }
-                                }
-                                return returnValue;
-                            },
-                            set: function (value) {
-                                if(!this.hasOwnProperty(internalProperty)) {
-                                    defineInternalProperty(this, internalProperty, value);
-                                } else {
-                                    this[internalProperty] = value;
-                                }
-                            }
-                        });
-                    }
-                    //This case is to deal with objects that are created with a constructor
-                } else if (value.constructor.prototype === Object.getPrototypeOf(value)) {
-                    Object.defineProperty(obj, prop, {
-                        configurable: true,
-                        get: function () {
-                            //Special case for object to copy the values
-                            var returnValue = this[internalProperty];
-                            if (!returnValue) {
-                                var k;
-                                returnValue = new value.constructor;
-                                for (k in value) {
-                                    returnValue[k] = value[k];
-                                }
-                                if(!this.hasOwnProperty(internalProperty)) {
-                                    defineInternalProperty(this, internalProperty, returnValue);
-                                } else {
-                                    this[internalProperty] = returnValue;
-                                }
-                            }
-                            return returnValue;
-                        },
-                        set: function (value) {
-                            if(!this.hasOwnProperty(internalProperty)) {
-                                defineInternalProperty(this, internalProperty, value);
-                            } else {
-                                this[internalProperty] = value;
-                            }
-                        }
-                    });
-
-
-                } else {
-                    Object.defineProperty(obj, prop, {
-                        configurable: true,
-                        get: function () {
-                            var returnValue = this[internalProperty];
-                            if (!returnValue) {
-                                returnValue = Object.create(value.__proto__ || Object.getPrototypeOf(value));
-                                if (this.hasOwnProperty(internalProperty))  {
-                                    this[internalProperty] = returnValue;
-                                } else {
-                                    defineInternalProperty(this, internalProperty, returnValue);
-                                }
-                            }
-                            return returnValue;
-                        },
-                        set: function (value) {
-                            if(!this.hasOwnProperty(internalProperty)) {
-                                defineInternalProperty(this, internalProperty, value);
-                            } else {
-                                this[internalProperty] = value;
-                            }
-                        }
-                    });
-                }
-            })(prop, UNDERSCORE + prop, descriptor.value, obj);
-
-        } else {
-            // clear the cache in any descendants that use this property for super()
+        // clear the cache in any descendants that use this property for super()
+        if (obj._superDependencies) {
             var superDependencies, i, j;
-            if (obj._superDependencies) {
-                if (typeof descriptor.value === "function" && (superDependencies = obj._superDependencies[prop + ".value"])) {
-                    for (i=0,j=superDependencies.length;i<j;i++) {
-                        delete superDependencies[i]._superCache[prop + ".value"];
+
+            if (typeof descriptor.value === "function") {
+                var propValueKey = prop + ".value";
+
+                if ((superDependencies = obj._superDependencies[propValueKey])) {
+                    for (i = 0, j = superDependencies.length; i < j; i++) {
+                        delete superDependencies[i]._superCache[propValueKey];
                     }
                 }
-                if (typeof descriptor.get === "function" && (superDependencies = obj._superDependencies[prop + ".get"])) {
-                    for (i=0,j=superDependencies.length;i<j;i++) {
-                        delete superDependencies[i]._superCache[prop + ".get"];
+            } else {
+                var propGetKey = prop + ".get",
+                    propSetKey = prop + ".set";
+
+                if (typeof descriptor.get === "function" && (superDependencies = obj._superDependencies[propGetKey])) {
+                    for (i = 0, j = superDependencies.length; i < j; i++) {
+                        delete superDependencies[i]._superCache[propGetKey];
                     }
                 }
-                if (typeof descriptor.set === "function" && (superDependencies = obj._superDependencies[prop + ".set"])) {
-                    for (i=0,j=superDependencies.length;i<j;i++) {
-                        delete superDependencies[i]._superCache[prop + ".set"];
+
+                if (typeof descriptor.set === "function" && (superDependencies = obj._superDependencies[propSetKey])) {
+                    for (i = 0, j = superDependencies.length; i < j; i++) {
+                        delete superDependencies[i]._superCache[propSetKey];
                     }
                 }
             }
-
-            return Object.defineProperty(obj, prop, descriptor);
         }
-    }
-});
+        return Object.defineProperty(obj, prop, descriptor);
+    };
+Object.defineProperty(Montage, "defineProperty", valuePropertyDescriptor);
 
 /**
  * Defines one or more new properties to an object, or modifies existing
@@ -575,7 +371,8 @@ Object.defineProperty(Montage, "defineProperties", {value: function (obj, proper
     if (typeof properties !== "object" || properties === null) {
         throw new TypeError("Properties must be an object, not '" + properties + "'");
     }
-    for (var property in properties) {
+    var propertyKeys = Object.getOwnPropertyNames(properties);
+    for (var i = 0; (property = propertyKeys[i]); i++) {
         if ("_bindingDescriptors" !== property) {
             this.defineProperty(obj, property, properties[property]);
         }
@@ -662,7 +459,7 @@ var getSuper = function (object, method) {
             context = proto;
         }
     }
-    return superForImplementation(object, method._superPropertyType, method._superPropertyName);
+    return superForImplementation(object, method._superPropertyType, method._superPropertyName, method);
 };
 
 
@@ -678,7 +475,7 @@ Montage.defineProperty(Montage, "_superContext", {
     value: null
 });
 
-var superForImplementation = function (object, propertyType, propertyName) {
+var superForImplementation = function (object, propertyType, propertyName, method) {
     var superFunction, superObject, property, cacheObject, boundSuper,
         context = object,
         cacheId = propertyName + "." + propertyType;
@@ -733,7 +530,7 @@ var superForImplementation = function (object, propertyType, propertyName) {
         superObject._superDependencies[cacheId].push(cacheObject);
         property = Object.getOwnPropertyDescriptor(superObject, propertyName);
         if (property) {
-            if (typeof property[propertyType] === "function") {
+            if ((typeof property[propertyType] === "function") && (property[propertyType] !== method)) {
                 superFunction = property[propertyType];
                 break;
             } else {
@@ -775,13 +572,13 @@ var superForImplementation = function (object, propertyType, propertyName) {
 };
 
 var superForValueImplementation = function (propertyName) {
-    return superForImplementation(this, "value", propertyName);
+    return superForImplementation(this, "value", propertyName, superForValueImplementation.caller);
 };
 var superForGetImplementation = function (propertyName) {
-    return superForImplementation(this, "get", propertyName);
+    return superForImplementation(this, "get", propertyName, superForGetImplementation.caller);
 };
 var superForSetImplementation = function (propertyName) {
-    return superForImplementation(this, "set", propertyName);
+    return superForImplementation(this, "set", propertyName, superForSetImplementation.caller);
 };
 
 /**
@@ -970,101 +767,9 @@ Montage.defineProperty(Montage, "getInfoForObject", {
     }
 });
 
-// TODO figure out why this code only works in this module.  Attempts to move
-// it to core/extras/object resulted in _uuid becoming enumerable and tests
-// breaking. - @kriskowal
-
-var UUID = require("./uuid");
-
-// HACK: This is to fix an IE10 bug where a getter on the window prototype chain
-// gets some kind of proxy Window object which cannot have properties defined
-// on it, instead of the `window` itself. Adding the uuid directly to the
-// window removes the needs to call the getter.
-if (typeof window !== "undefined") {
-    window.uuid = UUID.generate();
-}
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;
 
-var uuidGetGenerator = function () {
-
-    var uuid = UUID.generate(),
-        info = Montage.getInfoForObject(this);
-    try {
-        if (info !== null && info.isInstance === false) {
-            this._uuid = uuid;
-            Object.defineProperty(this, "uuid", {
-                get: function () {
-                    if (this.hasOwnProperty("uuid")) {
-                        // we are calling uuid on the prototype
-                        return this._uuid;
-                    } else {
-                        // we are calling uuid on instance of this prototype
-                        return uuidGetGenerator.call(this);
-                    }
-                }
-            });
-        } else {
-            //This is needed to workaround some bugs in Safari where re-defining uuid doesn't work for DOMWindow.
-            if (info.isInstance) {
-                Object.defineProperty(this, "uuid", {
-                    configurable: true,
-                    enumerable: false,
-                    writable: false,
-                    value: uuid
-                });
-            }
-            //This is really because re-defining the property on DOMWindow actually doesn't work, so the original property with the getter is still there and return this._uuid if there.
-            if (this instanceof Element || !info.isInstance || !(VALUE in (Object.getOwnPropertyDescriptor(this, "uuid")||{})) || !(PROTO in this /* lame way to detect IE */)) {
-                //This is needed to workaround some bugs in Safari where re-defining uuid doesn't work for DOMWindow.
-                this._uuid = uuid;
-            }
-        }
-    } catch(e) {
-        // NOTE Safari (as of Version 5.0.2 (6533.18.5, r78685)
-        // doesn't seem to allow redefining an existing property on a DOM Element
-        // Still want to redefine the property where possible for speed
-    }
-
-    // NOTE Safari (as of Version 6.1 8537.71) has a bug related to ES5
-    // property values. In some situations, even when the uuid has already
-    // been defined as a property value, accessing the uuid of an object can
-    // make it go through the defaultUuidGet as if the property descriptor
-    // was still the original one. When that happens, a new uuid is created
-    // for that object. To avoid this, we always make sure that the object
-    // has a _uuid that will be looked up at defaultUuidGet() before
-    // generating a new one. This mechanism was created to work around an
-    // issue with Safari that didn't allow redefining property descriptors
-    // in DOM elements.
-    this._uuid = uuid;
-
-    return uuid;
-};
-
-var defaultUuidGet = function defaultUuidGet() {
-    return (hasOwnProperty.call(this, "_uuid") ? this._uuid : uuidGetGenerator.call(this));
-};
-
-/**
-    @private
-*/
-Object.defineProperty(Object.prototype, "_uuid", {
-    enumerable: false,
-    value: null,
-    writable: true
-});
-
-/**
-    Contains an object's unique ID.
-    @member external:Object#uuid
-    @default null
-*/
-Object.defineProperty(Object.prototype, "uuid", {
-    configurable: true,
-    get: defaultUuidGet,
-    set: function () {
-    }
-});
 
 Montage.defineProperty(Montage, "identifier", {
     value: null,
@@ -1086,7 +791,7 @@ Montage.defineProperty(Montage.prototype, "identifier", {
 Montage.defineProperty(Montage.prototype, "equals", {
     value: function (anObject) {
         if (!anObject) return false;
-        return this === anObject || this.uuid === anObject.uuid;
+        return this === anObject || (this.uuid && this.uuid === anObject.uuid);
     }
 });
 
@@ -1103,20 +808,32 @@ Montage.defineProperty(Montage, "equals", {
 */
 Montage.defineProperty(Montage.prototype, "callDelegateMethod", {
     value: function (name) {
-        var delegate = this.delegate, delegateFunctionName, delegateFunction;
-        if (typeof this.identifier === "string") {
-            delegateFunctionName = this.identifier + name.toCapitalized();
-            if (delegate && typeof (delegateFunction = delegate[delegateFunctionName]) === "function") {
-                // remove first argument
-                ARRAY_PROTOTYPE.shift.call(arguments);
-                return delegateFunction.apply(delegate, arguments);
-            }
-        }
+        var delegate = this.delegate, delegateFunction;
 
-        if (delegate && typeof (delegateFunction = delegate[name]) === "function") {
-            // remove first argument
-            ARRAY_PROTOTYPE.shift.call(arguments);
-            return delegateFunction.apply(delegate, arguments);
+        if (delegate) {
+
+            if ((typeof this.identifier === "string") && (typeof (delegateFunction = delegate[this.identifier + name.toCapitalized()]) === "function")) {}
+            else if (typeof (delegateFunction = delegate[name]) === "function") {}
+
+            if (delegateFunction) {
+                if(arguments.length === 2) {
+                    return delegateFunction.call(delegate,arguments[1]);
+                }
+                else if(arguments.length === 3) {
+                    return delegateFunction.call(delegate,arguments[1],arguments[2]);
+                }
+                else if(arguments.length === 4) {
+                    return delegateFunction.call(delegate,arguments[1],arguments[2],arguments[3]);
+                }
+                else if(arguments.length === 5) {
+                    return delegateFunction.call(delegate,arguments[1],arguments[2],arguments[3],arguments[4]);
+                }
+                else {
+                    // remove first argument
+                    ARRAY_PROTOTYPE.shift.call(arguments);
+                    return delegateFunction.apply(delegate, arguments);
+                }
+            }
         }
     }
 });
@@ -1351,17 +1068,45 @@ Montage.defineProperties(Montage.prototype, bindingPropertyDescriptors);
 
 // Paths
 
-var WeakMap = require("collections/weak-map");
-var Map = require("collections/map");
+var WeakMap = require("collections/weak-map"),
+    Map = global.Map ? global.Map : require("collections/map"),
+    parse = require("frb/parse"),
+    evaluate = require("frb/evaluate"),
+    assign = require("frb/assign"),
+    bind = require("frb/bind"),
+    compileObserver = require("frb/compile-observer"),
+    Scope = require("frb/scope"),
+    Observers = require("frb/observers"),
+    autoCancelPrevious = Observers.autoCancelPrevious;
 
-var parse = require("frb/parse");
-var evaluate = require("frb/evaluate");
-var assign = require("frb/assign");
-var bind = require("frb/bind");
-var compileObserver = require("frb/compile-observer");
-var Scope = require("frb/scope");
-var Observers = require("frb/observers");
-var autoCancelPrevious = Observers.autoCancelPrevious;
+
+var PathChangeDescriptor = function PathChangeDescriptor() {
+    this._willChangeListeners = null;
+    this._changeListeners = null;
+	return this;
+}
+
+Object.defineProperties(PathChangeDescriptor.prototype,{
+	_willChangeListeners: {
+		value:null,
+		writable: true
+	},
+	willChangeListeners: {
+		get: function() {
+			return this._willChangeListeners || (this._willChangeListeners = new Map());
+		}
+	},
+	_changeListeners: {
+		value:null,
+		writable: true
+	},
+    changeListeners: {
+		get: function() {
+			return this._changeListeners || (this._changeListeners = new Map());
+		}
+	}
+
+});
 
 var pathChangeDescriptors = new WeakMap();
 
@@ -1489,7 +1234,7 @@ var pathPropertyDescriptors = {
     getPathChangeDescriptors: {
         value: function () {
             if (!pathChangeDescriptors.has(this)) {
-                pathChangeDescriptors.set(this, {});
+                pathChangeDescriptors.set(this, new Map());
             }
             return pathChangeDescriptors.get(this);
         }
@@ -1511,19 +1256,12 @@ var pathPropertyDescriptors = {
     getPathChangeDescriptor: {
         value: function (path, handler, beforeChange) {
             var descriptors = Montage.getPathChangeDescriptors.call(this);
-            if (!Object.owns(descriptors, path)) {
-                descriptors[path] = {
-                    willChangeListeners: new Map(), // handler to descriptor
-                    changeListeners: new Map()
-                };
+            if (!descriptors.has(path)) {
+                descriptors.set(path, new PathChangeDescriptor);
             }
 
-            descriptors = descriptors[path];
-            if (beforeChange) {
-                descriptors = descriptors.willChangeListeners;
-            } else {
-                descriptors = descriptors.changeListeners;
-            }
+            descriptors = descriptors.get(path);
+            descriptors = beforeChange ? descriptors.willChangeListeners : descriptors.changeListeners;
 
             if (!descriptors.has(handler)) {
                 descriptors.set(handler, {
@@ -1638,17 +1376,17 @@ var pathPropertyDescriptors = {
             var descriptorsForObject = Montage.getPathChangeDescriptors.call(this);
             var phase = beforeChange ? "willChangeListeners" : "changeListeners";
 
-            if (!Object.owns(descriptorsForObject, path)) {
+            var descriptorsForPath = descriptorsForObject.get(path);
+            if (!descriptorsForPath) {
                 throw new Error("Can't find " + phase + " for " + JSON.stringify(path));
             }
-            var descriptorsForPath = descriptorsForObject[path];
             var descriptorsForPhase = descriptorsForPath[phase];
             if (!descriptorsForPhase.has(handler)) {
                 throw new Error("Can't find " + phase + " for " + JSON.stringify(path));
             }
             var descriptor = descriptorsForPhase.get(handler);
             descriptor.cancel();
-            descriptorsForPhase["delete"](handler);
+            descriptorsForPhase.delete(handler);
             if (
                 descriptorsForPath.willChangeListeners.length === 0 &&
                 descriptorsForPath.changeListeners.length === 0
@@ -1754,7 +1492,7 @@ exports._blueprintDescriptor = {
                     var info = Montage.getInfoForObject(self);
 
                     return Blueprint.getBlueprintWithModuleId(blueprintModuleId, info.require)
-                    .fail(function (error) {
+                    .catch(function (error) {
                         // FIXME only generate blueprint if the moduleId
                         // requested does not exist. If any parents do not
                         // exist then the error should still be thrown.
@@ -1789,4 +1527,3 @@ exports._blueprintDescriptor = {
         });
     }
 };
-

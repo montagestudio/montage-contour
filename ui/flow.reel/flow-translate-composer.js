@@ -1,8 +1,6 @@
-var Montage = require("../../core/core").Montage,
-    TranslateComposer = require("../../composer/translate-composer").TranslateComposer,
-    defaultEventManager = require("../../core/event/event-manager").defaultEventManager,
+var TranslateComposer = require("../../composer/translate-composer").TranslateComposer,
     Point = require("../../core/geometry/point").Point,
-    convertPointFromPageToNode = require("../../core/dom").convertPointFromPageToNode;
+    convertPointFromPageToNode = Point.convertPointFromPageToNode;
 
 /**
  * @class FlowTranslateComposer
@@ -12,7 +10,6 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
 
     constructor: {
         value: function FlowTranslateComposer() {
-            this.super();
             this.handleMousewheel = this.handleWheel;
         }
     },
@@ -35,6 +32,20 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
         set: function (value) {
             this._linearScrollingVector = value;
         }
+    },
+
+    /**
+     *  How fast the cursor has to be moving before translating starts. Only
+     *  applied when another component has claimed the pointer.
+     *  @type {number}
+     *  @default 500
+     */
+    startTranslateSpeed: {
+        value: 500
+    },
+
+    startTranslateRadius: {
+        value: 8
     },
 
     // TODO doc
@@ -244,14 +255,16 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
                 this.endX = this.startX = this._pageX;
                 this.endY = this.startY = this._pageY;
 
-                if ((this._hasMomentum) && ((event.velocity.speed>40) || this.translateStrideX || this.translateStrideY)) {
+                var velocity = event.velocity;
+
+                if ((this._hasMomentum) && ((velocity.speed>40) || this.translateStrideX)) {
                     if (this._axis != "vertical") {
-                        this.momentumX = event.velocity.x * this._pointerSpeedMultiplier * (this._invertXAxis ? 1 : -1);
+                        this.momentumX = velocity.x * this._pointerSpeedMultiplier * (this._invertXAxis ? 1 : -1);
                     } else {
                         this.momentumX = 0;
                     }
                     if (this._axis != "horizontal") {
-                        this.momentumY = event.velocity.y * this._pointerSpeedMultiplier * (this._invertYAxis ? 1 : -1);
+                        this.momentumY = velocity.y * this._pointerSpeedMultiplier * (this._invertYAxis ? 1 : -1);
                     } else {
                         this.momentumY=0;
                     }
@@ -283,8 +296,20 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
         value: null
     },
 
-    _previousDeltaY: {
+    _previousDelta: {
         value: 0
+    },
+
+    _listenToWheelEvent: {
+        value: true
+    },
+
+    captureWheel: {
+        value: function () {
+            if (!this.eventManager.componentClaimingPointer(this._WHEEL_POINTER)) {
+                this.eventManager.claimPointer(this._WHEEL_POINTER, this.component);
+            }
+        }
     },
 
     // TODO Add wheel event listener for Firefox
@@ -297,32 +322,48 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
 
             // If this composers' component is claiming the "wheel" pointer then handle the event
             if (this.eventManager.isPointerClaimedByComponent(this._WHEEL_POINTER, this.component)) {
-                var oldPageY = this._pageY,
-                    deltaY = event.wheelDeltaY || -event.deltaY || 0;
+                var oldScroll = this._scroll,
+                    deltaX = event.wheelDeltaX || -event.deltaX || 0,
+                    deltaY = event.wheelDeltaY || -event.deltaY || 0,
+                    delta;
 
                 if (this.translateStrideX) {
                     window.clearTimeout(this._mousewheelStrideTimeout);
-                    if ((this._mousewheelStrideTimeout === null) || (Math.abs(deltaY) > Math.abs(this._previousDeltaY * (this._mousewheelStrideTimeout === null ? 2 : 4)))) {
-                        if (deltaY > 1) {
+                    if (Math.abs(this._linearScrollingVector[0]) > Math.abs(this._linearScrollingVector[1])) {
+                        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                            delta = this._linearScrollingVector[0] * -deltaX / Math.abs(this._linearScrollingVector[0]);
+                        } else {
+                            delta = 0;
+                        }
+                    } else {
+                        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                            delta = 0;
+                        } else {
+                            delta = this._linearScrollingVector[1] * -deltaY / Math.abs(this._linearScrollingVector[1]);
+                        }
+                    }
+                    if ((this._mousewheelStrideTimeout === null) || (Math.abs(delta) > Math.abs(this._previousDelta * (this._mousewheelStrideTimeout === null ? 2 : 4)))) {
+                        if (delta > 1) {
                             this.callDelegateMethod("previousStride", this);
                         } else {
-                            if (deltaY < -1) {
+                            if (delta < -1) {
                                 this.callDelegateMethod("nextStride", this);
                             }
                         }
                     }
                     this._mousewheelStrideTimeout = window.setTimeout(function () {
                         self._mousewheelStrideTimeout = null;
-                        self._previousDeltaY = 0;
+                        self._previousDelta = 0;
                     }, 70);
-                    self._previousDeltaY = deltaY;
-                    if (this._shouldPreventDefault(event)) {
+                    self._previousDelta = delta;
+                    if (delta !== 0 && this._shouldPreventDefault(event)) {
                         event.preventDefault();
                     }
                 } else {
                     if (this._translateEndTimeout === null) {
                         this._dispatchTranslateStart();
                     }
+                    this._pageX = this._pageX + ((deltaX * 20) / 100);
                     this._pageY = this._pageY + ((deltaY * 20) / 100);
                     this._updateScroll();
                     this._dispatchTranslate();
@@ -335,7 +376,7 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
                     // If we're not at one of the extremes (i.e. the scroll actually
                     // changed the translate) then we want to preventDefault to stop
                     // the page scrolling.
-                    if (oldPageY !== this._pageY && this._shouldPreventDefault(event)) {
+                    if (oldScroll !== this._scroll && this._shouldPreventDefault(event)) {
                         event.preventDefault();
                     }
                 }
@@ -485,6 +526,10 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
         value: null
     },
 
+    _computePointedElement_spline: {
+        value: []
+    },
+
     // TODO doc
     /**
      */
@@ -504,7 +549,7 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
                     y2 = this._pointerY - this._element.clientHeight * .5,
                     perspective = (this._element.offsetHeight * .5) / Math.tan((flow._viewpointFov * flow._doublePI) * (1 / 720)),
                     z2, tmp,
-                    splines = [],
+                    splines = this._computePointedElement_spline,
                     visibleIndexes = flow._visibleIndexes,
                     length = visibleIndexes.length,
                     pathIndex,
@@ -559,6 +604,7 @@ var FlowTranslateComposer = exports.FlowTranslateComposer = TranslateComposer.sp
                     }
                 }
                 this._closerIndex = closerIndex;
+                splines.length = 0;
             }
         }
     },

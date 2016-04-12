@@ -7,11 +7,10 @@ require("montage-testing").run(require, [
     "gate-spec",
     "logger-spec",
     "paths-spec",
-    "require-spec",
     "state-chart-spec",
     "string-spec",
     "document-resources-spec",
-    
+
     "base/abstract-control-spec",
     "base/abstract-alert-spec",
     "base/abstract-button-spec",
@@ -27,19 +26,20 @@ require("montage-testing").run(require, [
     "base/abstract-text-field-spec",
     "base/abstract-toggle-button-spec",
     "base/abstract-video-spec",
-    
+
     "bindings/spec",
     "bindings/converter-spec",
     "bindings/self-spec",
-    
+
     "composer/composer-spec",
     "composer/press-composer-spec",
     "composer/translate-composer/translate-composer-spec",
-    
+
     "core/browser-spec",
     "core/core-spec",
     "core/core-require-spec",
     "core/dom-spec",
+    "core/environment-spec",
     "core/localizer-spec",
     "core/media-controller-spec",
     "core/range-controller-spec",
@@ -50,19 +50,21 @@ require("montage-testing").run(require, [
     "core/super-for-spec",
     "core/undo-manager-spec",
     "core/tree-controller-spec",
-    
+
     "core/extras/function",
     "core/extras/string",
     "core/extras/url",
-    
+
+    "core/set-spec",
+
     "events/active-target-spec",
     "events/eventmanager-spec",
     "events/mutable-event-spec",
     "events/object-hierarchy-spec",
-    
+
     "geometry/cubicbezier-spec",
     "geometry/point-spec",
-    
+
     "meta/blueprint-spec",
     "meta/build-in-component-blueprint-spec",
     "meta/component-blueprint-spec",
@@ -70,20 +72,24 @@ require("montage-testing").run(require, [
     "meta/converter-blueprint-spec",
     "meta/event-blueprint-spec",
     "meta/module-blueprint-spec",
-    
+
     "reel/template-spec",
-    
+
     "serialization/alias-spec",
     "serialization/serialization-spec",
     "serialization/montage-serializer-spec",
     "serialization/montage-deserializer-spec",
+    "serialization/labeler-spec",
+    "serialization/reviver-spec",
+    "serialization/interpreter-spec",
+    "serialization/visitor-spec",
     "serialization/serialization-extractor-spec",
     "serialization/bindings-spec",
     "serialization/serialization-inspector-spec",
     "serialization/serialization-merger-spec",
-    
+
     "trigger/trigger-spec",
-    
+
     "ui/component-spec",
     "ui/control-spec",
     "ui/button-spec",
@@ -98,5 +104,7 @@ require("montage-testing").run(require, [
     "ui/slot-spec",
     "ui/substitution-spec",
     "ui/text/text-spec",
+    "ui/text-input-spec",
+    "ui/slider-spec",
     "ui/segmented-bar/segmented-bar-spec"
 ]);

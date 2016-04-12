@@ -1,9 +1,9 @@
 
 var Montage = require("montage").Montage;
-var Bindings = require("montage/core/bindings").Bindings;
-var serialize = require("montage/core/serialization").serialize;
-var deserialize = require("montage/core/serialization").deserialize;
-var Deserializer = require("montage/core/serialization").Deserializer;
+var Bindings = require("montage/core/core").Bindings;
+var serialize = require("montage/core/serialization/serializer/montage-serializer").serialize;
+var deserialize = require("montage/core/serialization/deserializer/montage-deserializer").deserialize;
+var Deserializer = require("montage/core/serialization/deserializer/montage-deserializer").MontageDeserializer;
 
 var Type = exports.Type = Montage.specialize( {
     foo: {
@@ -103,7 +103,7 @@ describe("serialization/bindings-spec", function () {
         return deserialize(serializationString, require)
         .then(function (object) {
             expect("deserialization").toBe("fail");
-        }).fail(function () {
+        }).catch(function() {
             // it should fail
         });
     });
@@ -131,7 +131,7 @@ describe("serialization/bindings-spec", function () {
             return deserializer.deserialize()
             .then(function () {
                 expect("deserialization").toBe("failed");
-            }).fail(function () {
+            }).catch(function() {
                 // it should fail
             });
         });

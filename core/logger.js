@@ -6,7 +6,6 @@ var Montage = require("./core").Montage,
     Logger,
     loggers,
     consoleLog,
-    emptyLoggerFunction,
     getFunctionName,
     toTimeString,
     LoggerUI,
@@ -33,9 +32,6 @@ toTimeString = function (date) {
     }
 };
 
-emptyLoggerFunction = function () {
-};
-
 consoleLog = function () {
     console.log(arguments);
 };
@@ -48,7 +44,6 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
 
     constructor: {
         value: function Logger() {
-            this.super();
             addColorProperty(this);
         }
     },
@@ -91,9 +86,19 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
      * @type {Array}
      * @default {Array} []
      */
+    _buffer: {
+        value: null
+    },
+
+    /**
+     * @private
+     * @type {Array}
+     * @default {Array} []
+     */
     buffer: {
-        value: [],
-        distinct: true
+        get: function() {
+            return this._buffer || (this._buffer = []);
+        }
     },
 
     /**
@@ -124,13 +129,13 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
      */
     isDebug: {
         get: function () {
-            return this.debug !== emptyLoggerFunction;
+            return this.debug !== Function.noop;
         },
         set: function (value) {
             if (value) {
                 this.debug = this._consoleLogMontage;
             } else {
-                this.debug = emptyLoggerFunction;
+                this.debug = Function.noop;
             }
         }
 
@@ -141,13 +146,13 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
      */
     isError: {
         get: function () {
-            return this.error !== emptyLoggerFunction;
+            return this.error !== Function.noop;
         },
         set: function (value) {
             if (value) {
                 this.error = this._consoleLogMontage;
             } else {
-                this.error = emptyLoggerFunction;
+                this.error = Function.noop;
             }
         }
     },
@@ -213,7 +218,7 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
      * @param {string} [...]
      */
     debug: {
-        value: emptyLoggerFunction
+        value: Function.noop
     },
 
     /**
@@ -222,7 +227,7 @@ Logger = exports.Logger = Montage.specialize(/** @lends Logger# */ {
      * @param {string} [...]
      */
     error: {
-        value: emptyLoggerFunction
+        value: Function.noop
     },
 
     /**
@@ -291,12 +296,6 @@ exports.logger = function (loggerName, onStateChange, dontStoreState) {
 };
 
 LoggerUI = Montage.specialize( /** @lends LoggerUI# */{
-
-    constructor: {
-        value: function LoggerUI() {
-            this.super();
-        }
-    },
 
     init: {
         value: function () {
@@ -519,4 +518,3 @@ if (typeof window !== "undefined") {
     }
 }
 var colors = exports.logger("colors");
-

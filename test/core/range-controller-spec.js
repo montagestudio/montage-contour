@@ -6,7 +6,7 @@ describe("core/range-controller-spec", function () {
     var rangeController;
 
     beforeEach(function () {
-        rangeController = RangeController.create().initWithContent([0, 1, 2]);
+        rangeController = (new RangeController()).initWithContent([0, 1, 2]);
     });
 
     describe("selection", function () {
@@ -123,7 +123,7 @@ describe("core/range-controller-spec", function () {
 
                     // from Repetition#content setter
                     var object = new RangeController().initWithContent(rangeController.selection);
-                    expect(object.organizedContent).toEqual([1]);
+                    expect(object.organizedContent.toArray()).toEqual([1]);
 
                     rangeController.selection.push(2);
 
@@ -302,7 +302,7 @@ describe("core/range-controller-spec", function () {
         });
 
         it("should use a default content constructor when no content is available", function () {
-            rangeController = RangeController.create();
+            rangeController = new RangeController();
             var content = rangeController.addContent();
             expect(content).toEqual({});
             expect(rangeController.content).toContain({});
@@ -327,7 +327,7 @@ describe("core/range-controller-spec", function () {
             content.contentEquals = function (){ return true; };
             expect(content.find(42)).toBe(0);
 
-            rangeController = RangeController.create().initWithContent(content);
+            rangeController = (new RangeController()).initWithContent(content);
             rangeController.multiSelect = true;
             rangeController.selection = [0];
 
@@ -350,6 +350,37 @@ describe("core/range-controller-spec", function () {
             rangeController.content = [1, 2];
             rangeController.swap(1, 1, [3, 4]);
             expect(rangeController.content).toEqual([1, 3, 4]);
+        });
+    });
+
+    describe("filtering, sorting and reversing", function () {
+        it("filterPath should work as expected", function () {
+            rangeController.content = [1, 2, 3, 4, 5];
+            rangeController.filterPath = "%2";
+            expect(rangeController.organizedContent).toEqual([1, 3, 5]);
+            rangeController.content = [1, 2, 3];
+            expect(rangeController.organizedContent).toEqual([1, 3]);
+        });
+        it("sortPath should work as expected", function () {
+            rangeController.content = [3, 1, 5, 2, 4];
+            rangeController.sortPath = "";
+            expect(rangeController.organizedContent).toEqual([1, 2, 3, 4, 5]);
+            rangeController.content = [2, 3, 1];
+            expect(rangeController.organizedContent).toEqual([1, 2, 3]);
+        });
+        it("reversed should work as expected", function () {
+            rangeController.content = [1, 2, 3, 4, 5];
+            rangeController.reversed = true;
+            expect(rangeController.organizedContent).toEqual([5, 4, 3, 2, 1]);
+            rangeController.content = [1, 2, 3];
+            expect(rangeController.organizedContent).toEqual([3, 2, 1]);
+        });
+        it("together should work as expected", function () {
+            rangeController.content = [3, 1, 5, 2, 4];
+            rangeController.filterPath = "%2";
+            rangeController.sortPath = "";
+            rangeController.reversed = true;
+            expect(rangeController.organizedContent).toEqual([5, 3, 1]);
         });
     });
 
