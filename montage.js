@@ -3,31 +3,31 @@ if (typeof window !== "undefined") {
     document._montageTiming = {};
     document._montageTiming.loadStartTime = Date.now();
 
-    console._groupTime = new Map();
+    console._groupTime = {};
     console.groupTime = function(name) {
-        var groupTimeEntry = this._groupTime.get(name);
+        var groupTimeEntry = this._groupTime[name];
         if(!groupTimeEntry) {
             groupTimeEntry = {
                 count: 0,
                 start: 0,
                 sum:0
             }
-            this._groupTime.set(name,groupTimeEntry);
+            this._groupTime[name] = groupTimeEntry;
         }
         groupTimeEntry.start = performance.now();
     };
     console.groupTimeEnd = function(name) {
         var end = performance.now();
-        var groupTimeEntry = this._groupTime.get(name);
+        var groupTimeEntry = this._groupTime[name];
         var time = end - groupTimeEntry.start;
 
         groupTimeEntry.count = groupTimeEntry.count+1;
         groupTimeEntry.sum = groupTimeEntry.sum+time;
-    }
+    };
     console.groupTimeAverage = function(name) {
-        var groupTimeEntry = this._groupTime.get(name);
+        var groupTimeEntry = this._groupTime[name];
         return groupTimeEntry.sum/groupTimeEntry.count;
-    }
+    };
 
 }
 
