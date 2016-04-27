@@ -11,7 +11,7 @@ if (typeof window !== "undefined") {
                 count: 0,
                 start: 0,
                 sum:0
-            }
+            };
             this._groupTime[name] = groupTimeEntry;
         }
         groupTimeEntry.start = performance.now();
